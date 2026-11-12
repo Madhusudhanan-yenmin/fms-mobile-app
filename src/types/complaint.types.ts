@@ -146,6 +146,9 @@ export interface ScannedAssetInfo {
   status?: string;
   condition?: string;
   responsiblePerson?: string;
+  mobilityType?: 'Movable' | 'Immovable' | string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export type ScannedLocationType = 'Campus' | 'Building' | 'Floor' | 'Room';
