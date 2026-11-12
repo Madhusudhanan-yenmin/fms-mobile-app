@@ -1,156 +1,432 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Colors } from '../../constants/colors';
-import { MOCK_ISSUES } from '../../mocks/mockData';
-import { IssueItem } from '../../types';
+import { ComplaintItem } from '../../types/complaint.types';
 import { Card, StatusBadge, Button } from '../../components';
 import { useTheme } from '../../context';
+import {
+  useAppDispatch,
+  useAppSelector,
+  fetchMyComplaintsThunk,
+  submitComplaintFeedbackThunk,
+} from '../../store';
+import { ComplaintDetailModal } from './ComplaintDetailModal';
 
 interface TeacherHomeScreenProps {
   onNavigateToScan: () => void;
   onNavigateToRaise: () => void;
+  focusListOnly?: boolean;
 }
+
+type FilterTab = 'All' | 'Open' | 'Resolved' | 'Closed';
 
 export const TeacherHomeScreen: React.FC<TeacherHomeScreenProps> = ({
   onNavigateToScan,
   onNavigateToRaise,
+  focusListOnly = false,
 }) => {
+  const dispatch = useAppDispatch();
   const { colors, isDark } = useTheme();
-  const [ratingSubmitted, setRatingSubmitted] = useState<Record<string, number>>({});
 
-  const myComplaints = MOCK_ISSUES.filter(
-    (i) => i.reportedBy.includes('Gayathri') || i.reportedBy.includes('Teacher') || i.reportedBy.includes('Meenakshi')
+  const user = useAppSelector((state) => state.login.user);
+  const { items, loadingList, error } = useAppSelector(
+    (state) => state.complaints
   );
 
-  const handleRate = (issueId: string, stars: number) => {
-    setRatingSubmitted((prev) => ({ ...prev, [issueId]: stars }));
-    Alert.alert('Feedback Recorded', `Thank you for rating this service ${stars} stars!`);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<FilterTab>('All');
+  const [selectedComplaint, setSelectedComplaint] =
+    useState<ComplaintItem | null>(null);
+  const [ratingLoadingId, setRatingLoadingId] = useState<string | null>(null);
+
+  const loadComplaints = async () => {
+    await dispatch(
+      fetchMyComplaintsThunk({
+        limit: 50,
+        ...(user?.isAdmin && user?.email ? { requesterEmail: user.email } : {}),
+      })
+    );
   };
 
-  return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.content}
-    >
-      {/* Scan Classroom Barcode Card */}
-      <TouchableOpacity
-        style={[
-          styles.scanBanner,
-          {
-            backgroundColor: colors.primary,
-            shadowColor: colors.primary,
-          },
-        ]}
-        activeOpacity={0.8}
-        onPress={onNavigateToScan}
-      >
-        <View style={styles.scanIconBox}>
-          <Feather name="maximize" size={24} color="#FFFFFF" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.scanBannerTitle}>Scan Classroom / Equipment QR</Text>
-          <Text style={styles.scanBannerSub}>
-            Auto-detects room & equipment code for instant service report
-          </Text>
-        </View>
-        <Feather name="arrow-right" size={20} color="#FFFFFF" />
-      </TouchableOpacity>
+  useEffect(() => {
+    loadComplaints();
+  }, [user?.email]);
 
-      {/* Manual Raise Button */}
-      <Button
-        title="Raise Facility or Equipment Complaint"
-        icon="plus-circle"
-        size="lg"
-        onPress={onNavigateToRaise}
-        style={{ marginBottom: 16 }}
-      />
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadComplaints();
+    setRefreshing(false);
+  };
 
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>
-          My Submitted Requests ({myComplaints.length})
-        </Text>
-      </View>
+  const handleQuickRate = async (complaintId: string, stars: number) => {
+    setRatingLoadingId(complaintId);
+    try {
+      await dispatch(
+        submitComplaintFeedbackThunk({
+          complaintId,
+          payload: { rating: stars },
+        })
+      );
+    } finally {
+      setRatingLoadingId(null);
+    }
+  };
 
-      {myComplaints.map((item) => {
-        const rating = ratingSubmitted[item.id];
+  const filteredComplaints = useMemo(() => {
+    return items.filter((item) => {
+      if (statusFilter === 'Open') {
+        if (!['Raised', 'Assigned', 'In Progress'].includes(item.status)) {
+          return false;
+        }
+      } else if (statusFilter === 'Resolved') {
+        if (!['Resolved', 'Verified'].includes(item.status)) {
+          return false;
+        }
+      } else if (statusFilter === 'Closed') {
+        if (item.status !== 'Closed') {
+          return false;
+        }
+      }
 
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
         return (
-          <Card key={item.id} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={[styles.ticketNum, { color: colors.text }]}>{item.ticketNumber}</Text>
-              <StatusBadge status={item.status} />
-            </View>
+          item.ticketNumber.toLowerCase().includes(q) ||
+          item.title.toLowerCase().includes(q) ||
+          item.category.toLowerCase().includes(q) ||
+          (item.roomName || '').toLowerCase().includes(q) ||
+          (item.assetName || '').toLowerCase().includes(q)
+        );
+      }
 
-            <Text style={[styles.issueTitle, { color: colors.text }]}>{item.title}</Text>
-            <Text style={[styles.issueLocation, { color: colors.textSecondary }]}>
-              <Feather name="map-pin" size={11} color={colors.primary} /> {item.building} • {item.room}
-            </Text>
+      return true;
+    });
+  }, [items, statusFilter, searchQuery]);
 
-            {item.assignedTo && (
-              <View
-                style={[
-                  styles.techAssignedBox,
-                  { backgroundColor: isDark ? '#1E3A8A' : '#EFF6FF' },
-                ]}
-              >
-                <Feather name="user-check" size={12} color={isDark ? '#93C5FD' : '#1E40AF'} />
-                <Text
-                  style={[
-                    styles.techText,
-                    { color: isDark ? '#93C5FD' : '#1E40AF' },
-                  ]}
-                >
-                  Assigned Technician: {item.assignedTo}
+  const filterTabs: FilterTab[] = ['All', 'Open', 'Resolved', 'Closed'];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        {/* Quick Actions Banner (hidden when focusing solely on My Complaints tab if desired, or shown cleanly) */}
+        {!focusListOnly && (
+          <>
+            <TouchableOpacity
+              style={[
+                styles.scanBanner,
+                {
+                  backgroundColor: colors.primary,
+                  shadowColor: colors.primary,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={onNavigateToScan}
+            >
+              <View style={styles.scanIconBox}>
+                <Feather name="maximize" size={24} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scanBannerTitle}>
+                  Scan Classroom / Equipment QR
+                </Text>
+                <Text style={styles.scanBannerSub}>
+                  Auto-detects room & equipment code for instant service report
                 </Text>
               </View>
-            )}
+              <Feather name="arrow-right" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
 
-            {/* If Resolved, Prompt for 5-Star Feedback */}
-            {item.status === 'Resolved' && (
-              <View
+            <Button
+              title="Raise Facility or Equipment Complaint"
+              icon="plus-circle"
+              size="lg"
+              onPress={onNavigateToRaise}
+              style={{ marginBottom: 16 }}
+            />
+          </>
+        )}
+
+        {/* My Submitted Requests Header */}
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            My Submitted Requests ({filteredComplaints.length})
+          </Text>
+          <TouchableOpacity onPress={onRefresh} style={styles.refreshBtn}>
+            <Feather name="refresh-cw" size={14} color={colors.primary} />
+            <Text style={[styles.refreshText, { color: colors.primary }]}>
+              Refresh
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Search Bar */}
+        <View
+          style={[
+            styles.searchBox,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <Feather name="search" size={15} color={colors.textMuted} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search ticket #, title, room, asset..."
+            placeholderTextColor={colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Feather name="x" size={15} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Status Filter Chips */}
+        <View style={styles.filterRow}>
+          {filterTabs.map((tab) => {
+            const active = statusFilter === tab;
+            return (
+              <TouchableOpacity
+                key={tab}
                 style={[
-                  styles.feedbackBox,
+                  styles.filterChip,
                   {
-                    backgroundColor: isDark ? '#451A03' : '#FFFBEB',
-                    borderColor: isDark ? '#78350F' : '#FDE68A',
+                    backgroundColor: active
+                      ? colors.primary
+                      : isDark
+                      ? '#1E293B'
+                      : colors.surface,
+                    borderColor: active ? colors.primary : colors.border,
                   },
                 ]}
+                onPress={() => setStatusFilter(tab)}
               >
                 <Text
                   style={[
-                    styles.feedbackTitle,
-                    { color: isDark ? '#FCD34D' : '#92400E' },
+                    styles.filterChipText,
+                    { color: active ? '#FFFFFF' : colors.textSecondary },
                   ]}
                 >
-                  Issue Resolved! Please Rate Service:
+                  {tab}
                 </Text>
-                <View style={styles.starsRow}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity
-                      key={star}
-                      onPress={() => handleRate(item.id, star)}
-                      style={styles.starTouch}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Error Banner */}
+        {error && (
+          <View style={styles.errorBanner}>
+            <Feather name="alert-circle" size={15} color="#DC2626" />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {/* Loading State */}
+        {loadingList && items.length === 0 ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+              Loading your requests...
+            </Text>
+          </View>
+        ) : filteredComplaints.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <View
+              style={[
+                styles.emptyIconCircle,
+                { backgroundColor: isDark ? '#1E293B' : '#FFF7ED' },
+              ]}
+            >
+              <Feather name="inbox" size={26} color={colors.primary} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              No Complaints Found
+            </Text>
+            <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+              {searchQuery || statusFilter !== 'All'
+                ? 'Try clearing your search or status filter.'
+                : 'Scan an equipment QR code or tap "Raise Facility or Equipment Complaint" to submit a new request.'}
+            </Text>
+          </Card>
+        ) : (
+          filteredComplaints.map((item) => {
+            const rating = item.rating || 0;
+            const showFeedbackPrompt = ['Resolved', 'Verified', 'Closed'].includes(
+              item.status
+            );
+            const locationText = [
+              item.buildingName,
+              item.floorName,
+              item.roomName,
+            ]
+              .filter(Boolean)
+              .join(' • ');
+
+            return (
+              <TouchableOpacity
+                key={item.id}
+                activeOpacity={0.85}
+                onPress={() => setSelectedComplaint(item)}
+              >
+                <Card style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.ticketRow}>
+                      <Text style={[styles.ticketNum, { color: colors.text }]}>
+                        {item.ticketNumber}
+                      </Text>
+                      <StatusBadge status={item.priority} type="priority" />
+                    </View>
+                    <StatusBadge status={item.status} />
+                  </View>
+
+                  <Text style={[styles.issueTitle, { color: colors.text }]}>
+                    {item.title}
+                  </Text>
+
+                  <Text
+                    style={[styles.issueLocation, { color: colors.textSecondary }]}
+                    numberOfLines={1}
+                  >
+                    <Feather name="map-pin" size={11} color={colors.primary} />{' '}
+                    {locationText || item.campusName}
+                    {item.assetName ? ` • ${item.assetName}` : ''}
+                  </Text>
+
+                  {item.assignedToName ? (
+                    <View
+                      style={[
+                        styles.techAssignedBox,
+                        { backgroundColor: isDark ? '#1E3A8A' : '#EFF6FF' },
+                      ]}
                     >
                       <Feather
-                        name="star"
-                        size={22}
-                        color={(rating || 0) >= star ? '#F59E0B' : colors.border}
+                        name="user-check"
+                        size={12}
+                        color={isDark ? '#93C5FD' : '#1E40AF'}
                       />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
+                      <Text
+                        style={[
+                          styles.techText,
+                          { color: isDark ? '#93C5FD' : '#1E40AF' },
+                        ]}
+                      >
+                        Assigned Technician: {item.assignedToName}
+                      </Text>
+                    </View>
+                  ) : null}
 
-            <View style={[styles.footerRow, { borderTopColor: colors.borderLight }]}>
-              <Text style={[styles.reportedAt, { color: colors.textMuted }]}>Submitted {item.reportedAt}</Text>
-              <Text style={[styles.categoryBadge, { color: colors.textSecondary }]}>{item.category}</Text>
-            </View>
-          </Card>
-        );
-      })}
-    </ScrollView>
+                  {/* If Resolved / Verified / Closed, allow or show 5-Star Feedback */}
+                  {showFeedbackPrompt && (
+                    <View
+                      style={[
+                        styles.feedbackBox,
+                        {
+                          backgroundColor: isDark ? '#451A03' : '#FFFBEB',
+                          borderColor: isDark ? '#78350F' : '#FDE68A',
+                        },
+                      ]}
+                    >
+                      <View style={styles.feedbackTopRow}>
+                        <Text
+                          style={[
+                            styles.feedbackTitle,
+                            { color: isDark ? '#FCD34D' : '#92400E' },
+                          ]}
+                        >
+                          {rating > 0
+                            ? `Rated Service: ${rating}/5 Stars`
+                            : 'Issue Resolved! Rate Service:'}
+                        </Text>
+                        {ratingLoadingId === item.id && (
+                          <ActivityIndicator size="small" color="#F59E0B" />
+                        )}
+                      </View>
+                      <View style={styles.starsRow}>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <TouchableOpacity
+                            key={star}
+                            disabled={rating > 0 || ratingLoadingId === item.id}
+                            onPress={() => handleQuickRate(item.id, star)}
+                            style={styles.starTouch}
+                          >
+                            <Feather
+                              name="star"
+                              size={20}
+                              color={rating >= star ? '#F59E0B' : colors.border}
+                            />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <View
+                    style={[
+                      styles.footerRow,
+                      { borderTopColor: colors.borderLight },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.reportedAt, { color: colors.textMuted }]}
+                    >
+                      {item.reportedAt}
+                    </Text>
+                    <View style={styles.footerRight}>
+                      <Text
+                        style={[
+                          styles.categoryBadge,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        {item.category}
+                      </Text>
+                      <Feather
+                        name="chevron-right"
+                        size={14}
+                        color={colors.textMuted}
+                      />
+                    </View>
+                  </View>
+                </Card>
+              </TouchableOpacity>
+            );
+          })
+        )}
+      </ScrollView>
+
+      {/* Ticket Detail & Timeline Modal */}
+      <ComplaintDetailModal
+        visible={Boolean(selectedComplaint)}
+        complaint={selectedComplaint}
+        onClose={() => setSelectedComplaint(null)}
+      />
+    </View>
   );
 };
 
@@ -160,7 +436,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 25,
+    paddingBottom: 28,
   },
   scanBanner: {
     flexDirection: 'row',
@@ -195,12 +471,105 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 8,
-    marginLeft: 2,
+    marginHorizontal: 2,
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  refreshText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 40,
+    marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 12.5,
+    height: '100%',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#991B1B',
+    fontWeight: '600',
+  },
+  loadingBox: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 10,
+  },
+  loadingText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  emptyCard: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+  },
+  emptyIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  emptySub: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 17,
   },
   card: {
     padding: 14,
@@ -210,6 +579,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
+    gap: 8,
+  },
+  ticketRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   ticketNum: {
     fontSize: 13,
@@ -243,10 +618,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 8,
   },
+  feedbackTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   feedbackTitle: {
     fontSize: 11,
     fontWeight: '800',
-    marginBottom: 6,
   },
   starsRow: {
     flexDirection: 'row',
@@ -264,11 +644,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   reportedAt: {
-    fontSize: 10,
+    fontSize: 10.5,
+  },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   categoryBadge: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
 });
-

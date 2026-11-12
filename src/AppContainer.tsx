@@ -12,6 +12,7 @@ import {
   useAppSelector,
   checkAuthSessionThunk,
   setActiveRole as setReduxRole,
+  setScannedAsset,
 } from './store';
 import { LoginScreen, ForgotPasswordScreen } from './screens/auth';
 
@@ -28,6 +29,7 @@ import { SupervisorDashboardScreen } from './screens/supervisor/SupervisorDashbo
 import { AdminOperationsScreen } from './screens/admin/AdminOperationsScreen';
 import { TeacherHomeScreen } from './screens/staff/TeacherHomeScreen';
 import { RaiseIssueScreen } from './screens/staff/RaiseIssueScreen';
+import { QrScannerModal } from './screens/staff/QrScannerModal';
 
 export const AppContainer: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -37,6 +39,7 @@ export const AppContainer: React.FC = () => {
   const [currentRole, setCurrentRole] = useState<AppRole>(activeRole);
   const [activeTabKey, setActiveTabKey] = useState<string>('tech_home');
   const [roleSwitcherVisible, setRoleSwitcherVisible] = useState(false);
+  const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const [authView, setAuthView] = useState<'login' | 'forgot_password'>('login');
 
   // Check persisted session on app launch
@@ -129,7 +132,12 @@ export const AppContainer: React.FC = () => {
       return <CleaningTasksScreen />;
     }
     if (activeTabKey === 'hk_report') {
-      return <RaiseIssueScreen onSuccess={() => setActiveTabKey('hk_tasks')} />;
+      return (
+        <RaiseIssueScreen
+          onSuccess={() => setActiveTabKey('hk_tasks')}
+          onOpenScanner={() => setQrScannerVisible(true)}
+        />
+      );
     }
 
     // 5. Safety / Inspection Tabs
@@ -158,29 +166,47 @@ export const AppContainer: React.FC = () => {
       return <AdminOperationsScreen />;
     }
 
-    // 9. Teacher / Staff Tabs
-    if (activeTabKey === 'staff_home' || activeTabKey === 'staff_complaints') {
+    // 9. Teacher / Staff / Student / Lab In-charge Tabs
+    if (activeTabKey === 'staff_home') {
       return (
         <TeacherHomeScreen
-          onNavigateToScan={() => Alert.alert('Camera Scan', 'Camera viewfinder ready for classroom QR code scan.')}
+          onNavigateToScan={() => setQrScannerVisible(true)}
           onNavigateToRaise={() => setActiveTabKey('staff_raise')}
         />
       );
     }
-    if (activeTabKey === 'staff_scan') {
+    if (activeTabKey === 'staff_complaints') {
       return (
         <TeacherHomeScreen
-          onNavigateToScan={() => Alert.alert('Camera Scan', 'Camera viewfinder ready for classroom QR code scan.')}
+          focusListOnly
+          onNavigateToScan={() => setQrScannerVisible(true)}
           onNavigateToRaise={() => setActiveTabKey('staff_raise')}
         />
       );
     }
     if (activeTabKey === 'staff_raise') {
-      return <RaiseIssueScreen onSuccess={() => setActiveTabKey('staff_complaints')} />;
+      return (
+        <RaiseIssueScreen
+          onOpenScanner={() => setQrScannerVisible(true)}
+          onSuccess={() =>
+            setActiveTabKey(
+              currentRole === 'lab-in-charge' ? 'tech_home' : 'staff_complaints'
+            )
+          }
+        />
+      );
     }
 
     // Fallback
     return <TechnicianHomeScreen />;
+  };
+
+  const handleTabSelect = (tabKey: string) => {
+    if (tabKey === 'staff_scan') {
+      setQrScannerVisible(true);
+      return;
+    }
+    setActiveTabKey(tabKey);
   };
 
   return (
@@ -202,7 +228,7 @@ export const AppContainer: React.FC = () => {
       <DynamicTabBar
         currentRole={currentRole}
         activeTabKey={activeTabKey}
-        onSelectTab={setActiveTabKey}
+        onSelectTab={handleTabSelect}
       />
 
       {/* Interactive Role Switcher Bottom Sheet */}
@@ -211,6 +237,17 @@ export const AppContainer: React.FC = () => {
         currentRole={currentRole}
         onSelectRole={handleSelectRole}
         onClose={() => setRoleSwitcherVisible(false)}
+      />
+
+      {/* Live Camera QR Code Scanner Modal */}
+      <QrScannerModal
+        visible={qrScannerVisible}
+        onClose={() => setQrScannerVisible(false)}
+        onProceedToReport={(asset) => {
+          dispatch(setScannedAsset(asset));
+          setQrScannerVisible(false);
+          setActiveTabKey('staff_raise');
+        }}
       />
     </View>
   );

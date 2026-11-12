@@ -23,7 +23,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Smart Campus FMS to access your camera to scan classroom and equipment QR codes."
+        }
+      ]
     ]
   }
 }

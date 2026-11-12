@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,209 +6,823 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Alert,
+  Modal,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Colors } from '../../constants/colors';
+import * as yup from 'yup';
 import { PriorityLevel } from '../../types';
-import { Card, Button } from '../../components';
+import {
+  LocationBuildingNode,
+  LocationCampusNode,
+  LocationFloorNode,
+  LocationRoomNode,
+} from '../../types/complaint.types';
+import { Card, Button, ConfirmationModal } from '../../components';
 import { useTheme } from '../../context';
+import {
+  useAppDispatch,
+  useAppSelector,
+  fetchComplaintCategoriesThunk,
+  fetchLocationsTreeThunk,
+  fetchMyComplaintsThunk,
+  createComplaintThunk,
+  submitQrComplaintThunk,
+  clearScannedAsset,
+  clearComplaintErrors,
+} from '../../store';
+import {
+  raiseComplaintYupSchema,
+  qrComplaintYupSchema,
+} from '../../helpers/validation.helper';
 
 interface RaiseIssueScreenProps {
   onSuccess: () => void;
+  onOpenScanner?: () => void;
 }
 
-export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({ onSuccess }) => {
+interface PickerOption {
+  id: string;
+  label: string;
+  subLabel?: string;
+}
+
+interface SelectPickerModalProps {
+  visible: boolean;
+  title: string;
+  options: PickerOption[];
+  selectedId: string;
+  onSelect: (option: PickerOption) => void;
+  onClose: () => void;
+}
+
+const SelectPickerModal: React.FC<SelectPickerModalProps> = ({
+  visible,
+  title,
+  options,
+  selectedId,
+  onSelect,
+  onClose,
+}) => {
   const { colors, isDark } = useTheme();
-  const [category, setCategory] = useState('Electrical & Power');
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.pickerOverlay}>
+        <View style={[styles.pickerSheet, { backgroundColor: colors.surface }]}>
+          <View style={styles.pickerHeader}>
+            <Text style={[styles.pickerTitle, { color: colors.text }]}>{title}</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={[
+                styles.pickerCloseBtn,
+                { backgroundColor: isDark ? '#1E293B' : '#F3F4F6' },
+              ]}
+            >
+              <Feather name="x" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator>
+            {options.length === 0 ? (
+              <Text style={[styles.pickerEmpty, { color: colors.textSecondary }]}>
+                No options available
+              </Text>
+            ) : (
+              options.map((opt) => {
+                const isSelected = opt.id === selectedId;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[
+                      styles.pickerOption,
+                      {
+                        borderBottomColor: colors.borderLight,
+                        backgroundColor: isSelected
+                          ? isDark
+                            ? '#2D1C12'
+                            : '#FFF9F2'
+                          : 'transparent',
+                      },
+                    ]}
+                    onPress={() => {
+                      onSelect(opt);
+                      onClose();
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.pickerOptionLabel,
+                          { color: isSelected ? colors.primary : colors.text },
+                          isSelected && { fontWeight: '800' },
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                      {opt.subLabel ? (
+                        <Text style={[styles.pickerOptionSub, { color: colors.textMuted }]}>
+                          {opt.subLabel}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {isSelected && (
+                      <Feather name="check-circle" size={18} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
+  onSuccess,
+  onOpenScanner,
+}) => {
+  const dispatch = useAppDispatch();
+  const { colors, isDark } = useTheme();
+
+  const user = useAppSelector((state) => state.login.user);
+  const {
+    categories,
+    locationsTree,
+    scannedAsset,
+    loadingLocations,
+    submitting,
+    submitError,
+  } = useAppSelector((state) => state.complaints);
+
+  // Location selection states (manual mode)
+  const [campusId, setCampusId] = useState('');
+  const [buildingId, setBuildingId] = useState('');
+  const [floorId, setFloorId] = useState('');
+  const [roomId, setRoomId] = useState('');
+  const [activePicker, setActivePicker] = useState<
+    'campus' | 'building' | 'floor' | 'room' | null
+  >(null);
+
+  // Issue fields
+  const [category, setCategory] = useState('Electrical');
   const [priority, setPriority] = useState<PriorityLevel>('High');
   const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [room, setRoom] = useState('Lecture Hall 101');
-  const [photoCaptured, setPhotoCaptured] = useState(false);
+  const [description, setDescription] = useState('');
+  const [contactPhone, setContactPhone] = useState(user?.phone || '');
 
-  const categories = [
-    'Electrical & Power',
-    'IT & AV Equipment',
-    'Air Conditioning / HVAC',
-    'Plumbing & Water',
-    'Furniture & Carpentry',
-    'Sanitation & Hygiene',
-  ];
+  // Validation & feedback state
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [successTicketNum, setSuccessTicketNum] = useState<string | null>(null);
 
   const priorities: PriorityLevel[] = ['Low', 'Medium', 'High', 'Critical'];
 
-  const handleSubmit = () => {
-    if (!title.trim()) {
-      Alert.alert('Required Field', 'Please enter a brief complaint title.');
-      return;
-    }
+  // Load categories & location tree on mount
+  useEffect(() => {
+    dispatch(clearComplaintErrors());
+    dispatch(fetchComplaintCategoriesThunk());
+    dispatch(fetchLocationsTreeThunk());
+  }, [dispatch]);
 
-    Alert.alert(
-      'Complaint Logged Successfully',
-      `Ticket #TKT-2026-${Math.floor(1000 + Math.random() * 9000)} has been registered and routed to the Facility Management lead.`,
-      [
-        {
-          text: 'View My Requests',
-          onPress: onSuccess,
-        },
-      ]
-    );
+  // Keep default category synced with loaded categories
+  useEffect(() => {
+    if (categories.length > 0 && !categories.some((c) => c.name === category)) {
+      setCategory(categories[0].name);
+    }
+  }, [categories, category]);
+
+  // Sync phone from profile if loaded later
+  useEffect(() => {
+    if (user?.phone && !contactPhone) {
+      setContactPhone(user.phone);
+    }
+  }, [user?.phone, contactPhone]);
+
+  // Auto-select campus if there is only one
+  useEffect(() => {
+    if (locationsTree.length === 1 && !campusId) {
+      setCampusId(locationsTree[0].id);
+    }
+  }, [locationsTree, campusId]);
+
+  const selectedCampus: LocationCampusNode | undefined = useMemo(
+    () => locationsTree.find((c) => c.id === campusId),
+    [locationsTree, campusId]
+  );
+
+  const buildings: LocationBuildingNode[] = selectedCampus?.buildings || [];
+  const selectedBuilding: LocationBuildingNode | undefined = useMemo(
+    () => buildings.find((b) => b.id === buildingId),
+    [buildings, buildingId]
+  );
+
+  const floors: LocationFloorNode[] = selectedBuilding?.floors || [];
+  const selectedFloor: LocationFloorNode | undefined = useMemo(
+    () => floors.find((f) => f.id === floorId),
+    [floors, floorId]
+  );
+
+  const rooms: LocationRoomNode[] = selectedFloor?.rooms || [];
+  const selectedRoom: LocationRoomNode | undefined = useMemo(
+    () => rooms.find((r) => r.id === roomId),
+    [rooms, roomId]
+  );
+
+  const clearFieldErr = (key: string) => {
+    if (fieldErrors[key]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
   };
 
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setFieldErrors({});
+    dispatch(clearScannedAsset());
+  };
+
+  const handleSubmit = async () => {
+    dispatch(clearComplaintErrors());
+
+    const requesterName = user?.fullName?.trim() || 'Campus Staff';
+    const requesterRole = user?.roles?.[0] || 'Staff';
+    const requesterEmail = user?.email?.trim() || 'staff@yenmin.edu';
+    const requesterPhone = contactPhone.trim() || user?.phone?.trim() || '+919000000000';
+
+    try {
+      if (scannedAsset) {
+        await qrComplaintYupSchema.validate(
+          {
+            assetCode: scannedAsset.assetCode,
+            category,
+            priority,
+            title: title.trim(),
+            description: description.trim(),
+          },
+          { abortEarly: false }
+        );
+        setFieldErrors({});
+
+        const result = await dispatch(
+          submitQrComplaintThunk({
+            assetCode: scannedAsset.assetCode,
+            issueCategory: category,
+            priority,
+            title: title.trim(),
+            description: description.trim(),
+            requesterName,
+            requesterRole,
+            requesterPhone,
+            requesterEmail,
+          })
+        );
+
+        if (submitQrComplaintThunk.fulfilled.match(result)) {
+          await dispatch(fetchMyComplaintsThunk({ requesterEmail }));
+          setSuccessTicketNum(result.payload.ticketNumber);
+          resetForm();
+        }
+      } else {
+        await raiseComplaintYupSchema.validate(
+          {
+            campusId,
+            buildingId,
+            category,
+            priority,
+            title: title.trim(),
+            description: description.trim(),
+          },
+          { abortEarly: false }
+        );
+        setFieldErrors({});
+
+        const result = await dispatch(
+          createComplaintThunk({
+            campusId,
+            buildingId,
+            floorId: floorId || undefined,
+            roomId: roomId || undefined,
+            category,
+            priority,
+            title: title.trim(),
+            description: description.trim(),
+            requesterName,
+            requesterRole,
+            requesterEmail,
+            requesterPhone,
+          })
+        );
+
+        if (createComplaintThunk.fulfilled.match(result)) {
+          setSuccessTicketNum(result.payload.ticketNumber);
+          resetForm();
+        }
+      }
+    } catch (err) {
+      if (err instanceof yup.ValidationError) {
+        const errs: Record<string, string> = {};
+        err.inner.forEach((e) => {
+          if (e.path && !errs[e.path]) {
+            errs[e.path] = e.message;
+          }
+        });
+        setFieldErrors(errs);
+      }
+    }
+  };
+
+  const getPickerConfig = (): {
+    title: string;
+    options: PickerOption[];
+    selectedId: string;
+    onSelect: (opt: PickerOption) => void;
+  } => {
+    if (activePicker === 'campus') {
+      return {
+        title: 'Select Campus',
+        options: locationsTree.map((c) => ({
+          id: c.id,
+          label: c.name,
+          subLabel: `${c.buildings?.length || 0} buildings`,
+        })),
+        selectedId: campusId,
+        onSelect: (opt) => {
+          setCampusId(opt.id);
+          setBuildingId('');
+          setFloorId('');
+          setRoomId('');
+          clearFieldErr('campusId');
+        },
+      };
+    }
+    if (activePicker === 'building') {
+      return {
+        title: 'Select Building',
+        options: buildings.map((b) => ({
+          id: b.id,
+          label: b.name,
+          subLabel: `${b.floors?.length || 0} floors`,
+        })),
+        selectedId: buildingId,
+        onSelect: (opt) => {
+          setBuildingId(opt.id);
+          setFloorId('');
+          setRoomId('');
+          clearFieldErr('buildingId');
+        },
+      };
+    }
+    if (activePicker === 'floor') {
+      return {
+        title: 'Select Floor (Optional)',
+        options: floors.map((f) => ({
+          id: f.id,
+          label: f.floorName,
+          subLabel: `${f.rooms?.length || 0} rooms`,
+        })),
+        selectedId: floorId,
+        onSelect: (opt) => {
+          setFloorId(opt.id);
+          setRoomId('');
+        },
+      };
+    }
+    return {
+      title: 'Select Room (Optional)',
+      options: rooms.map((r) => ({
+        id: r.id,
+        label: r.roomNumber ? `${r.roomNumber} - ${r.name}` : r.name,
+      })),
+      selectedId: roomId,
+      onSelect: (opt) => setRoomId(opt.id),
+    };
+  };
+
+  const pickerConfig = getPickerConfig();
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.content}
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Card>
-        <Text style={[styles.label, { color: colors.text }]}>Location / Classroom</Text>
-        <View
-          style={[
-            styles.inputWrap,
-            {
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#1A2333' : colors.surface,
-            },
-          ]}
-        >
-          <Feather name="map-pin" size={16} color={colors.primary} />
-          <TextInput
-            style={[styles.textInput, { color: colors.text }]}
-            value={room}
-            onChangeText={setRoom}
-            placeholder="e.g. Block A, First Floor, Room 204"
-            placeholderTextColor={colors.textMuted}
-          />
-        </View>
-
-        <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>Issue Category</Text>
-        <View style={styles.pillsWrap}>
-          {categories.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[
-                styles.pill,
-                {
-                  borderColor: category === cat ? colors.primary : colors.border,
-                  backgroundColor: category === cat
-                    ? (isDark ? colors.primaryLight : colors.primaryLight)
-                    : (isDark ? '#1A2333' : colors.surface),
-                },
-              ]}
-              onPress={() => setCategory(cat)}
-            >
-              <Text
-                style={[
-                  styles.pillText,
-                  { color: category === cat ? colors.primary : colors.textSecondary },
-                ]}
-              >
-                {cat}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>Complaint Title *</Text>
-        <TextInput
-          style={[
-            styles.textInputFlat,
-            {
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#1A2333' : colors.surface,
-              color: colors.text,
-            },
-          ]}
-          placeholder="e.g. Tube light blinking, Water tap leaking..."
-          placeholderTextColor={colors.textMuted}
-          value={title}
-          onChangeText={setTitle}
-        />
-
-        <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>Detailed Description</Text>
-        <TextInput
-          style={[
-            styles.textInputFlat,
-            {
-              height: 80,
-              textAlignVertical: 'top',
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#1A2333' : colors.surface,
-              color: colors.text,
-            },
-          ]}
-          placeholder="Describe the breakdown, noise, or symptom observed..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-          value={desc}
-          onChangeText={setDesc}
-        />
-
-        <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>Priority Severity</Text>
-        <View style={styles.priorityRow}>
-          {priorities.map((p) => {
-            const isActive = priority === p;
-            return (
-              <TouchableOpacity
-                key={p}
-                style={[
-                  styles.priorityBtn,
-                  {
-                    borderColor: isActive ? colors.primary : colors.border,
-                    backgroundColor: isActive ? colors.primary : (isDark ? '#1A2333' : colors.surface),
-                  },
-                ]}
-                onPress={() => setPriority(p)}
-              >
-                <Text
-                  style={[
-                    styles.priorityText,
-                    { color: isActive ? '#FFFFFF' : colors.textSecondary },
-                  ]}
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* QR Scanned Equipment Card OR Scan Shortcut */}
+        {scannedAsset ? (
+          <Card
+            style={[
+              styles.scannedBannerCard,
+              {
+                borderColor: '#10B981',
+                backgroundColor: isDark ? '#062B1D' : '#ECFDF5',
+              },
+            ]}
+          >
+            <View style={styles.scannedRow}>
+              <View style={styles.scannedIconBox}>
+                <Feather name="cpu" size={20} color="#059669" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scannedTag}>
+                  QR ASSET LINKED • {scannedAsset.assetCode}
+                </Text>
+                <Text style={[styles.scannedName, { color: colors.text }]}>
+                  {scannedAsset.name}
+                </Text>
+                <Text style={[styles.scannedLoc, { color: colors.textSecondary }]}>
+                  {scannedAsset.location || 'Main Campus'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.scannedActionsRow}>
+              {onOpenScanner && (
+                <TouchableOpacity
+                  style={[styles.smallOutlineBtn, { borderColor: '#10B981' }]}
+                  onPress={onOpenScanner}
                 >
-                  {p}
+                  <Feather name="maximize" size={12} color="#059669" />
+                  <Text style={styles.smallOutlineText}>Re-scan QR</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.smallOutlineBtn, { borderColor: colors.border }]}
+                onPress={() => dispatch(clearScannedAsset())}
+              >
+                <Feather name="x" size={12} color={colors.textSecondary} />
+                <Text
+                  style={[styles.smallOutlineText, { color: colors.textSecondary }]}
+                >
+                  Manual Location Instead
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </View>
+            </View>
+          </Card>
+        ) : (
+          onOpenScanner && (
+            <TouchableOpacity
+              style={[
+                styles.qrShortcutBanner,
+                {
+                  backgroundColor: isDark ? '#2D1C12' : '#FFF7ED',
+                  borderColor: isDark ? '#5A2E14' : '#FED7AA',
+                },
+              ]}
+              onPress={onOpenScanner}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.qrShortcutIcon, { backgroundColor: colors.primary }]}>
+                <Feather name="maximize" size={18} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.qrShortcutTitle, { color: colors.text }]}>
+                  Have an Equipment QR Sticker?
+                </Text>
+                <Text style={[styles.qrShortcutSub, { color: colors.textSecondary }]}>
+                  Tap to scan QR and auto-fill asset & room location
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={colors.primary} />
+            </TouchableOpacity>
+          )
+        )}
 
-        <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>Attach Breakdown Photo</Text>
-        <TouchableOpacity
-          style={[
-            styles.photoBox,
-            {
-              borderColor: photoCaptured ? '#10B981' : colors.border,
-              backgroundColor: photoCaptured
-                ? (isDark ? '#064E3B' : '#ECFDF5')
-                : (isDark ? '#1A2333' : colors.background),
-            },
-          ]}
-          onPress={() => {
-            Alert.alert('Camera', 'Photo captured and attached.');
-            setPhotoCaptured(true);
-          }}
-        >
-          <Feather
-            name={photoCaptured ? 'check-circle' : 'camera'}
-            size={24}
-            color={photoCaptured ? '#10B981' : colors.primary}
-          />
-          <Text style={[styles.photoBoxText, { color: colors.text }]}>
-            {photoCaptured ? 'Photo Attached (IMG_2026.jpg)' : 'Take Photo with Camera'}
+        {/* API Error Banner */}
+        {submitError && (
+          <View style={styles.errorBanner}>
+            <Feather name="alert-circle" size={16} color="#DC2626" />
+            <Text style={styles.errorBannerText}>{submitError}</Text>
+          </View>
+        )}
+
+        <Card>
+          {/* Manual Campus -> Building -> Floor -> Room Pickers (when no QR asset) */}
+          {!scannedAsset && (
+            <View style={{ marginBottom: 14 }}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.label, { color: colors.text, marginBottom: 0 }]}>
+                  Campus & Room Location *
+                </Text>
+                {loadingLocations && (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                )}
+              </View>
+
+              {/* Campus Select */}
+              <TouchableOpacity
+                style={[
+                  styles.selectBox,
+                  {
+                    borderColor: fieldErrors.campusId ? '#EF4444' : colors.border,
+                    backgroundColor: isDark ? '#1A2333' : colors.surface,
+                  },
+                ]}
+                onPress={() => setActivePicker('campus')}
+              >
+                <Feather name="globe" size={15} color={colors.primary} />
+                <Text
+                  style={[
+                    styles.selectText,
+                    { color: selectedCampus ? colors.text : colors.textMuted },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {selectedCampus ? selectedCampus.name : 'Select Campus *'}
+                </Text>
+                <Feather name="chevron-down" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+              {fieldErrors.campusId && (
+                <Text style={styles.fieldError}>{fieldErrors.campusId}</Text>
+              )}
+
+              {/* Building Select */}
+              <TouchableOpacity
+                style={[
+                  styles.selectBox,
+                  {
+                    marginTop: 8,
+                    borderColor: fieldErrors.buildingId ? '#EF4444' : colors.border,
+                    backgroundColor: isDark ? '#1A2333' : colors.surface,
+                    opacity: selectedCampus ? 1 : 0.6,
+                  },
+                ]}
+                disabled={!selectedCampus}
+                onPress={() => setActivePicker('building')}
+              >
+                <Feather name="home" size={15} color={colors.primary} />
+                <Text
+                  style={[
+                    styles.selectText,
+                    { color: selectedBuilding ? colors.text : colors.textMuted },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {selectedBuilding ? selectedBuilding.name : 'Select Building *'}
+                </Text>
+                <Feather name="chevron-down" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+              {fieldErrors.buildingId && (
+                <Text style={styles.fieldError}>{fieldErrors.buildingId}</Text>
+              )}
+
+              {/* Floor & Room Row */}
+              <View style={styles.twoColRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.selectBox,
+                    {
+                      flex: 1,
+                      borderColor: colors.border,
+                      backgroundColor: isDark ? '#1A2333' : colors.surface,
+                      opacity: selectedBuilding ? 1 : 0.6,
+                    },
+                  ]}
+                  disabled={!selectedBuilding}
+                  onPress={() => setActivePicker('floor')}
+                >
+                  <Text
+                    style={[
+                      styles.selectText,
+                      { color: selectedFloor ? colors.text : colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {selectedFloor ? selectedFloor.floorName : 'Floor (Opt)'}
+                  </Text>
+                  <Feather name="chevron-down" size={15} color={colors.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.selectBox,
+                    {
+                      flex: 1,
+                      borderColor: colors.border,
+                      backgroundColor: isDark ? '#1A2333' : colors.surface,
+                      opacity: selectedFloor ? 1 : 0.6,
+                    },
+                  ]}
+                  disabled={!selectedFloor}
+                  onPress={() => setActivePicker('room')}
+                >
+                  <Text
+                    style={[
+                      styles.selectText,
+                      { color: selectedRoom ? colors.text : colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {selectedRoom
+                      ? selectedRoom.roomNumber || selectedRoom.name
+                      : 'Room (Opt)'}
+                  </Text>
+                  <Feather name="chevron-down" size={15} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Issue Category */}
+          <Text style={[styles.label, { color: colors.text }]}>Issue Category *</Text>
+          <View style={styles.pillsWrap}>
+            {categories.map((cat) => {
+              const isSelected = category === cat.name;
+              return (
+                <TouchableOpacity
+                  key={cat.id || cat.name}
+                  style={[
+                    styles.pill,
+                    {
+                      borderColor: isSelected ? colors.primary : colors.border,
+                      backgroundColor: isSelected
+                        ? isDark
+                          ? '#2D1C12'
+                          : colors.primaryLight
+                        : isDark
+                        ? '#1A2333'
+                        : colors.surface,
+                    },
+                  ]}
+                  onPress={() => {
+                    setCategory(cat.name);
+                    clearFieldErr('category');
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      { color: isSelected ? colors.primary : colors.textSecondary },
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Priority Severity */}
+          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+            Priority Severity *
           </Text>
-        </TouchableOpacity>
-      </Card>
+          <View style={styles.priorityRow}>
+            {priorities.map((p) => {
+              const isActive = priority === p;
+              return (
+                <TouchableOpacity
+                  key={p}
+                  style={[
+                    styles.priorityBtn,
+                    {
+                      borderColor: isActive ? colors.primary : colors.border,
+                      backgroundColor: isActive
+                        ? colors.primary
+                        : isDark
+                        ? '#1A2333'
+                        : colors.surface,
+                    },
+                  ]}
+                  onPress={() => setPriority(p)}
+                >
+                  <Text
+                    style={[
+                      styles.priorityText,
+                      { color: isActive ? '#FFFFFF' : colors.textSecondary },
+                    ]}
+                  >
+                    {p}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-      <Button
-        title="Submit Complaint Ticket"
-        icon="send"
-        size="lg"
-        onPress={handleSubmit}
-        style={{ marginTop: 4, marginBottom: 20 }}
-      />
-    </ScrollView>
+          {/* Complaint Title */}
+          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+            Complaint Title *
+          </Text>
+          <TextInput
+            style={[
+              styles.textInputFlat,
+              {
+                borderColor: fieldErrors.title ? '#EF4444' : colors.border,
+                backgroundColor: isDark ? '#1A2333' : colors.surface,
+                color: colors.text,
+              },
+            ]}
+            placeholder="e.g. Projector flickering or AC water leak..."
+            placeholderTextColor={colors.textMuted}
+            value={title}
+            onChangeText={(val) => {
+              setTitle(val);
+              clearFieldErr('title');
+            }}
+          />
+          {fieldErrors.title && (
+            <Text style={styles.fieldError}>{fieldErrors.title}</Text>
+          )}
+
+          {/* Detailed Description */}
+          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+            Detailed Description *
+          </Text>
+          <TextInput
+            style={[
+              styles.textInputFlat,
+              {
+                height: 90,
+                textAlignVertical: 'top',
+                borderColor: fieldErrors.description ? '#EF4444' : colors.border,
+                backgroundColor: isDark ? '#1A2333' : colors.surface,
+                color: colors.text,
+              },
+            ]}
+            placeholder="Describe the breakdown, noise, or symptom observed..."
+            placeholderTextColor={colors.textMuted}
+            multiline
+            value={description}
+            onChangeText={(val) => {
+              setDescription(val);
+              clearFieldErr('description');
+            }}
+          />
+          {fieldErrors.description && (
+            <Text style={styles.fieldError}>{fieldErrors.description}</Text>
+          )}
+
+          {/* Contact Phone (auto-filled from user profile) */}
+          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+            Contact Phone
+          </Text>
+          <View
+            style={[
+              styles.inputWrap,
+              {
+                borderColor: colors.border,
+                backgroundColor: isDark ? '#1A2333' : colors.surface,
+              },
+            ]}
+          >
+            <Feather name="phone" size={15} color={colors.primary} />
+            <TextInput
+              style={[styles.textInput, { color: colors.text }]}
+              value={contactPhone}
+              onChangeText={setContactPhone}
+              placeholder="+919876543210"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="phone-pad"
+            />
+          </View>
+        </Card>
+
+        <Button
+          title={scannedAsset ? 'Submit QR Breakdown Report' : 'Submit Complaint Ticket'}
+          icon="send"
+          size="lg"
+          loading={submitting}
+          onPress={handleSubmit}
+          style={{ marginTop: 4, marginBottom: 24 }}
+        />
+
+        {/* Cascading Location Picker Modal */}
+        <SelectPickerModal
+          visible={activePicker !== null}
+          title={pickerConfig.title}
+          options={pickerConfig.options}
+          selectedId={pickerConfig.selectedId}
+          onSelect={pickerConfig.onSelect}
+          onClose={() => setActivePicker(null)}
+        />
+
+        {/* Ticket Created Confirmation Modal */}
+        <ConfirmationModal
+          visible={Boolean(successTicketNum)}
+          type="success"
+          title="Complaint Registered"
+          message={`Ticket #${successTicketNum} has been logged and routed to the Facility Management team.`}
+          confirmText="View My Requests"
+          confirmIcon="check"
+          showCancel={false}
+          onCancel={() => {
+            setSuccessTicketNum(null);
+            onSuccess();
+          }}
+          onConfirm={() => {
+            setSuccessTicketNum(null);
+            onSuccess();
+          }}
+        />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -220,10 +834,127 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 35,
   },
+  qrShortcutBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  qrShortcutIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrShortcutTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  qrShortcutSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  scannedBannerCard: {
+    borderWidth: 1.5,
+    padding: 14,
+  },
+  scannedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  scannedIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannedTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.4,
+  },
+  scannedName: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  scannedLoc: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  scannedActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  smallOutlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  smallOutlineText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#991B1B',
+    fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   label: {
     fontSize: 12,
     fontWeight: '800',
     marginBottom: 6,
+  },
+  selectBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 42,
+  },
+  selectText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  twoColRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
   },
   inputWrap: {
     flexDirection: 'row',
@@ -244,6 +975,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 13,
+  },
+  fieldError: {
+    fontSize: 11,
+    color: '#DC2626',
+    marginTop: 4,
+    fontWeight: '600',
   },
   pillsWrap: {
     flexDirection: 'row',
@@ -275,18 +1012,53 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  photoBox: {
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderRadius: 10,
-    height: 80,
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  pickerSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 18,
+    paddingBottom: 28,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pickerCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
   },
-  photoBoxText: {
+  pickerEmpty: {
+    textAlign: 'center',
+    paddingVertical: 24,
+    fontSize: 13,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderRadius: 8,
+  },
+  pickerOptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pickerOptionSub: {
     fontSize: 11,
-    fontWeight: '700',
+    marginTop: 2,
   },
 });
-
