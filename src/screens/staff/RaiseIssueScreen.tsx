@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,7 @@ import {
   createComplaintThunk,
   submitQrComplaintThunk,
   clearScannedAsset,
+  clearScannedLocation,
   clearComplaintErrors,
 } from '../../store';
 import {
@@ -153,6 +154,7 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
     categories,
     locationsTree,
     scannedAsset,
+    scannedLocation,
     loadingLocations,
     submitting,
     submitError,
@@ -164,7 +166,7 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
   const [floorId, setFloorId] = useState('');
   const [roomId, setRoomId] = useState('');
   const [activePicker, setActivePicker] = useState<
-    'campus' | 'building' | 'floor' | 'room' | null
+    'campus' | 'building' | 'floor' | 'room' | 'category' | null
   >(null);
 
   // Issue fields
@@ -172,11 +174,21 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
   const [priority, setPriority] = useState<PriorityLevel>('High');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [contactPhone, setContactPhone] = useState(user?.phone || '');
 
   // Validation & feedback state
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  type FormField =
+    | 'campusId'
+    | 'buildingId'
+    | 'category'
+    | 'priority'
+    | 'title'
+    | 'description'
+    | 'assetCode';
+
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FormField, string>>>({});
+  const [touched, setTouched] = useState<Partial<Record<FormField, boolean>>>({});
   const [successTicketNum, setSuccessTicketNum] = useState<string | null>(null);
+  const pickerSelectedRef = useRef(false);
 
   const priorities: PriorityLevel[] = ['Low', 'Medium', 'High', 'Critical'];
 
@@ -194,19 +206,64 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
     }
   }, [categories, category]);
 
-  // Sync phone from profile if loaded later
+  // Auto-select campus if there is only one (and no scanned location)
   useEffect(() => {
-    if (user?.phone && !contactPhone) {
-      setContactPhone(user.phone);
-    }
-  }, [user?.phone, contactPhone]);
-
-  // Auto-select campus if there is only one
-  useEffect(() => {
-    if (locationsTree.length === 1 && !campusId) {
+    if (locationsTree.length === 1 && !campusId && !scannedLocation) {
       setCampusId(locationsTree[0].id);
+      setFieldErrors((prev) => {
+        if (!prev.campusId) return prev;
+        const next = { ...prev };
+        delete next.campusId;
+        return next;
+      });
     }
-  }, [locationsTree, campusId]);
+  }, [locationsTree, campusId, scannedLocation]);
+
+  // Keep field errors scoped cleanly to active mode (QR Asset vs Manual/Location)
+  useEffect(() => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (scannedAsset) {
+        delete next.campusId;
+        delete next.buildingId;
+      } else {
+        delete next.assetCode;
+      }
+      return next;
+    });
+  }, [scannedAsset]);
+
+  // Auto-fill Campus -> Building -> Floor -> Room when a Location QR is scanned
+  useEffect(() => {
+    if (!scannedLocation) return;
+    if (scannedLocation.locationType === 'Campus') {
+      setCampusId(scannedLocation.id || '');
+      setBuildingId('');
+      setFloorId('');
+      setRoomId('');
+    } else if (scannedLocation.locationType === 'Building') {
+      setCampusId(scannedLocation.hierarchy?.campus?.id || '');
+      setBuildingId(scannedLocation.id || '');
+      setFloorId('');
+      setRoomId('');
+    } else if (scannedLocation.locationType === 'Floor') {
+      setCampusId(scannedLocation.hierarchy?.campus?.id || '');
+      setBuildingId(scannedLocation.hierarchy?.building?.id || '');
+      setFloorId(scannedLocation.id || '');
+      setRoomId('');
+    } else if (scannedLocation.locationType === 'Room') {
+      setCampusId(scannedLocation.hierarchy?.campus?.id || '');
+      setBuildingId(scannedLocation.hierarchy?.building?.id || '');
+      setFloorId(scannedLocation.hierarchy?.floor?.id || '');
+      setRoomId(scannedLocation.id || '');
+    }
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.campusId;
+      delete next.buildingId;
+      return next;
+    });
+  }, [scannedLocation]);
 
   const selectedCampus: LocationCampusNode | undefined = useMemo(
     () => locationsTree.find((c) => c.id === campusId),
@@ -231,13 +288,91 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
     [rooms, roomId]
   );
 
-  const clearFieldErr = (key: string) => {
-    if (fieldErrors[key]) {
+  const validateField = async (
+    field: FormField,
+    overrides: Partial<Record<FormField, string>> = {}
+  ) => {
+    if (scannedAsset && (field === 'campusId' || field === 'buildingId')) {
+      return;
+    }
+    if (!scannedAsset && field === 'assetCode') {
+      return;
+    }
+
+    const formValues = {
+      assetCode: scannedAsset?.assetCode || '',
+      campusId,
+      buildingId,
+      category,
+      priority,
+      title,
+      description,
+      ...overrides,
+    };
+
+    const activeSchema = scannedAsset
+      ? qrComplaintYupSchema
+      : raiseComplaintYupSchema;
+
+    try {
+      await activeSchema.validateAt(field, formValues);
       setFieldErrors((prev) => {
+        if (!prev[field]) return prev;
         const next = { ...prev };
-        delete next[key];
+        delete next[field];
         return next;
       });
+    } catch (err) {
+      if (err instanceof yup.ValidationError) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          [field]: err.message,
+        }));
+      }
+    }
+  };
+
+  const handleTitleChange = (val: string) => {
+    setTitle(val);
+    if (submitError) dispatch(clearComplaintErrors());
+    if (touched.title || val.length > 0) {
+      validateField('title', { title: val });
+    }
+  };
+
+  const handleDescriptionChange = (val: string) => {
+    setDescription(val);
+    if (submitError) dispatch(clearComplaintErrors());
+    if (touched.description || val.length > 0) {
+      validateField('description', { description: val });
+    }
+  };
+
+  const handleBlur = (field: 'title' | 'description') => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    validateField(field);
+  };
+
+  const handlePickerClose = () => {
+    const closingPicker = activePicker;
+    const wasSelected = pickerSelectedRef.current;
+    pickerSelectedRef.current = false;
+    setActivePicker(null);
+
+    if (
+      !wasSelected &&
+      (closingPicker === 'campus' ||
+        closingPicker === 'building' ||
+        closingPicker === 'category')
+    ) {
+      const field: FormField =
+        closingPicker === 'campus'
+          ? 'campusId'
+          : closingPicker === 'building'
+          ? 'buildingId'
+          : 'category';
+      setTouched((prev) => ({ ...prev, [field]: true }));
+      validateField(field);
     }
   };
 
@@ -245,16 +380,36 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
     setTitle('');
     setDescription('');
     setFieldErrors({});
+    setTouched({});
     dispatch(clearScannedAsset());
+    dispatch(clearScannedLocation());
   };
 
   const handleSubmit = async () => {
     dispatch(clearComplaintErrors());
+    setTouched(
+      scannedAsset
+        ? {
+            assetCode: true,
+            category: true,
+            priority: true,
+            title: true,
+            description: true,
+          }
+        : {
+            campusId: true,
+            buildingId: true,
+            category: true,
+            priority: true,
+            title: true,
+            description: true,
+          }
+    );
 
     const requesterName = user?.fullName?.trim() || 'Campus Staff';
     const requesterRole = user?.roles?.[0] || 'Staff';
     const requesterEmail = user?.email?.trim() || 'staff@yenmin.edu';
-    const requesterPhone = contactPhone.trim() || user?.phone?.trim() || '+919000000000';
+    const requesterPhone = user?.phone?.trim() || '+919000000000';
 
     try {
       if (scannedAsset) {
@@ -344,6 +499,23 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
     selectedId: string;
     onSelect: (opt: PickerOption) => void;
   } => {
+    if (activePicker === 'category') {
+      return {
+        title: 'Select Issue Category',
+        options: categories.map((cat) => ({
+          id: cat.name,
+          label: cat.name,
+          subLabel: cat.description || undefined,
+        })),
+        selectedId: category,
+        onSelect: (opt) => {
+          pickerSelectedRef.current = true;
+          setCategory(opt.id);
+          setTouched((prev) => ({ ...prev, category: true }));
+          validateField('category', { category: opt.id });
+        },
+      };
+    }
     if (activePicker === 'campus') {
       return {
         title: 'Select Campus',
@@ -354,11 +526,16 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
         })),
         selectedId: campusId,
         onSelect: (opt) => {
+          pickerSelectedRef.current = true;
           setCampusId(opt.id);
           setBuildingId('');
           setFloorId('');
           setRoomId('');
-          clearFieldErr('campusId');
+          setTouched((prev) => ({ ...prev, campusId: true }));
+          validateField('campusId', { campusId: opt.id, buildingId: '' });
+          if (touched.buildingId) {
+            validateField('buildingId', { campusId: opt.id, buildingId: '' });
+          }
         },
       };
     }
@@ -372,10 +549,12 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
         })),
         selectedId: buildingId,
         onSelect: (opt) => {
+          pickerSelectedRef.current = true;
           setBuildingId(opt.id);
           setFloorId('');
           setRoomId('');
-          clearFieldErr('buildingId');
+          setTouched((prev) => ({ ...prev, buildingId: true }));
+          validateField('buildingId', { buildingId: opt.id });
         },
       };
     }
@@ -389,6 +568,7 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
         })),
         selectedId: floorId,
         onSelect: (opt) => {
+          pickerSelectedRef.current = true;
           setFloorId(opt.id);
           setRoomId('');
         },
@@ -401,7 +581,10 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
         label: r.roomNumber ? `${r.roomNumber} - ${r.name}` : r.name,
       })),
       selectedId: roomId,
-      onSelect: (opt) => setRoomId(opt.id),
+      onSelect: (opt) => {
+        pickerSelectedRef.current = true;
+        setRoomId(opt.id);
+      },
     };
   };
 
@@ -466,6 +649,72 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
                 </Text>
               </TouchableOpacity>
             </View>
+            {fieldErrors.assetCode && (
+              <Text style={[styles.fieldError, { marginTop: 6 }]}>
+                {fieldErrors.assetCode}
+              </Text>
+            )}
+          </Card>
+        ) : scannedLocation ? (
+          <Card
+            style={[
+              styles.scannedBannerCard,
+              {
+                borderColor: colors.primary,
+                backgroundColor: isDark ? '#2D1C12' : '#FFF7ED',
+              },
+            ]}
+          >
+            <View style={styles.scannedRow}>
+              <View
+                style={[
+                  styles.scannedIconBox,
+                  { backgroundColor: 'rgba(245, 130, 32, 0.16)' },
+                ]}
+              >
+                <Feather name="map-pin" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.scannedTag, { color: colors.primary }]}>
+                  {scannedLocation.locationType.toUpperCase()} QR LINKED
+                  {scannedLocation.roomNumber || scannedLocation.code
+                    ? ` • ${scannedLocation.roomNumber || scannedLocation.code}`
+                    : ''}
+                </Text>
+                <Text style={[styles.scannedName, { color: colors.text }]}>
+                  {scannedLocation.name}
+                </Text>
+                {scannedLocation.breadcrumb ? (
+                  <Text style={[styles.scannedLoc, { color: colors.textSecondary }]}>
+                    {scannedLocation.breadcrumb}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.scannedActionsRow}>
+              {onOpenScanner && (
+                <TouchableOpacity
+                  style={[styles.smallOutlineBtn, { borderColor: colors.primary }]}
+                  onPress={onOpenScanner}
+                >
+                  <Feather name="maximize" size={12} color={colors.primary} />
+                  <Text style={[styles.smallOutlineText, { color: colors.primary }]}>
+                    Re-scan QR
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.smallOutlineBtn, { borderColor: colors.border }]}
+                onPress={() => dispatch(clearScannedLocation())}
+              >
+                <Feather name="x" size={12} color={colors.textSecondary} />
+                <Text
+                  style={[styles.smallOutlineText, { color: colors.textSecondary }]}
+                >
+                  Clear QR Link
+                </Text>
+              </TouchableOpacity>
+            </View>
           </Card>
         ) : (
           onOpenScanner && (
@@ -485,10 +734,10 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.qrShortcutTitle, { color: colors.text }]}>
-                  Have an Equipment QR Sticker?
+                  Have a Location or Equipment QR?
                 </Text>
                 <Text style={[styles.qrShortcutSub, { color: colors.textSecondary }]}>
-                  Tap to scan QR and auto-fill asset & room location
+                  Tap to scan Asset, Room, Floor, Building or Campus QR
                 </Text>
               </View>
               <Feather name="chevron-right" size={18} color={colors.primary} />
@@ -631,44 +880,34 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
             </View>
           )}
 
-          {/* Issue Category */}
+          {/* Issue Category Select Field */}
           <Text style={[styles.label, { color: colors.text }]}>Issue Category *</Text>
-          <View style={styles.pillsWrap}>
-            {categories.map((cat) => {
-              const isSelected = category === cat.name;
-              return (
-                <TouchableOpacity
-                  key={cat.id || cat.name}
-                  style={[
-                    styles.pill,
-                    {
-                      borderColor: isSelected ? colors.primary : colors.border,
-                      backgroundColor: isSelected
-                        ? isDark
-                          ? '#2D1C12'
-                          : colors.primaryLight
-                        : isDark
-                        ? '#1A2333'
-                        : colors.surface,
-                    },
-                  ]}
-                  onPress={() => {
-                    setCategory(cat.name);
-                    clearFieldErr('category');
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.pillText,
-                      { color: isSelected ? colors.primary : colors.textSecondary },
-                    ]}
-                  >
-                    {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.selectBox,
+              {
+                borderColor: fieldErrors.category ? '#EF4444' : colors.border,
+                backgroundColor: isDark ? '#1A2333' : colors.surface,
+              },
+            ]}
+            onPress={() => setActivePicker('category')}
+            activeOpacity={0.75}
+          >
+            <Feather name="tag" size={15} color={colors.primary} />
+            <Text
+              style={[
+                styles.selectText,
+                { color: category ? colors.text : colors.textMuted },
+              ]}
+              numberOfLines={1}
+            >
+              {category || 'Select Issue Category *'}
+            </Text>
+            <Feather name="chevron-down" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
+          {fieldErrors.category && (
+            <Text style={styles.fieldError}>{fieldErrors.category}</Text>
+          )}
 
           {/* Priority Severity */}
           <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
@@ -691,7 +930,11 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
                         : colors.surface,
                     },
                   ]}
-                  onPress={() => setPriority(p)}
+                  onPress={() => {
+                    setPriority(p);
+                    setTouched((prev) => ({ ...prev, priority: true }));
+                    validateField('priority', { priority: p });
+                  }}
                 >
                   <Text
                     style={[
@@ -705,6 +948,9 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
               );
             })}
           </View>
+          {fieldErrors.priority && (
+            <Text style={styles.fieldError}>{fieldErrors.priority}</Text>
+          )}
 
           {/* Complaint Title */}
           <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
@@ -722,10 +968,8 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
             placeholder="e.g. Projector flickering or AC water leak..."
             placeholderTextColor={colors.textMuted}
             value={title}
-            onChangeText={(val) => {
-              setTitle(val);
-              clearFieldErr('title');
-            }}
+            onChangeText={handleTitleChange}
+            onBlur={() => handleBlur('title')}
           />
           {fieldErrors.title && (
             <Text style={styles.fieldError}>{fieldErrors.title}</Text>
@@ -750,38 +994,12 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
             placeholderTextColor={colors.textMuted}
             multiline
             value={description}
-            onChangeText={(val) => {
-              setDescription(val);
-              clearFieldErr('description');
-            }}
+            onChangeText={handleDescriptionChange}
+            onBlur={() => handleBlur('description')}
           />
           {fieldErrors.description && (
             <Text style={styles.fieldError}>{fieldErrors.description}</Text>
           )}
-
-          {/* Contact Phone (auto-filled from user profile) */}
-          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
-            Contact Phone
-          </Text>
-          <View
-            style={[
-              styles.inputWrap,
-              {
-                borderColor: colors.border,
-                backgroundColor: isDark ? '#1A2333' : colors.surface,
-              },
-            ]}
-          >
-            <Feather name="phone" size={15} color={colors.primary} />
-            <TextInput
-              style={[styles.textInput, { color: colors.text }]}
-              value={contactPhone}
-              onChangeText={setContactPhone}
-              placeholder="+919876543210"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="phone-pad"
-            />
-          </View>
         </Card>
 
         <Button
@@ -800,7 +1018,7 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
           options={pickerConfig.options}
           selectedId={pickerConfig.selectedId}
           onSelect={pickerConfig.onSelect}
-          onClose={() => setActivePicker(null)}
+          onClose={handlePickerClose}
         />
 
         {/* Ticket Created Confirmation Modal */}

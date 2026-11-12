@@ -14,38 +14,45 @@ import {
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { Feather } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
-import { ScannedAssetInfo } from '../../types/complaint.types';
+import {
+  ScannedAssetInfo,
+  ScannedLocationInfo,
+} from '../../types/complaint.types';
 import { Card, Button, StatusBadge } from '../../components';
 import { useTheme } from '../../context';
 import {
   useAppDispatch,
   useAppSelector,
-  scanAssetQrThunk,
+  scanUniversalQrThunk,
   clearScannedAsset,
+  clearScannedLocation,
 } from '../../store';
 
 export interface QrScannerModalProps {
   visible: boolean;
   onClose: () => void;
   onProceedToReport: (asset: ScannedAssetInfo) => void;
+  onProceedToLocationReport?: (location: ScannedLocationInfo) => void;
 }
 
 export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   visible,
   onClose,
   onProceedToReport,
+  onProceedToLocationReport,
 }) => {
   const dispatch = useAppDispatch();
   const { colors, isDark } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
 
-  const { scannedAsset, scanningQr, scanError } = useAppSelector(
-    (state) => state.complaints
-  );
+  const { scannedAsset, scannedLocation, scanningQr, scanError } =
+    useAppSelector((state) => state.complaints);
 
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const [hasScannedFrame, setHasScannedFrame] = useState(false);
+
+  const hasResult = Boolean(scannedAsset || scannedLocation);
 
   // Reset scan state each time modal opens
   useEffect(() => {
@@ -54,25 +61,27 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
       setManualCode('');
       setTorchEnabled(false);
       dispatch(clearScannedAsset());
+      dispatch(clearScannedLocation());
     }
   }, [visible, dispatch]);
 
   const handleBarCodeScanned = async (result: BarcodeScanningResult) => {
     if (hasScannedFrame || scanningQr || !result?.data) return;
     setHasScannedFrame(true);
-    await dispatch(scanAssetQrThunk(result.data));
+    await dispatch(scanUniversalQrThunk(result.data));
   };
 
   const handleManualLookup = async () => {
     const trimmed = manualCode.trim();
     if (!trimmed) return;
     setHasScannedFrame(true);
-    await dispatch(scanAssetQrThunk(trimmed));
+    await dispatch(scanUniversalQrThunk(trimmed));
   };
 
   const handleScanAgain = () => {
     setHasScannedFrame(false);
     dispatch(clearScannedAsset());
+    dispatch(clearScannedLocation());
   };
 
   return (
@@ -107,13 +116,13 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>
-              Scan Equipment QR
+              Scan Campus / Equipment QR
             </Text>
             <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-              Point camera at campus asset or classroom QR sticker
+              Point camera at equipment, room, floor, building or campus QR
             </Text>
           </View>
-          {permission?.granted && !scannedAsset ? (
+          {permission?.granted && !hasResult ? (
             <TouchableOpacity
               onPress={() => setTorchEnabled((prev) => !prev)}
               style={[
@@ -143,7 +152,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
           keyboardShouldPersistTaps="handled"
         >
           {/* Camera Viewfinder OR Result Card */}
-          {!scannedAsset ? (
+          {!hasResult ? (
             <View style={styles.cameraSection}>
               <View style={styles.cameraFrame}>
                 {!permission ? (
@@ -223,13 +232,13 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                 </View>
               )}
 
-              {/* Manual Asset Code Fallback */}
+              {/* Manual Code Fallback */}
               <Card style={styles.manualCard}>
                 <Text style={[styles.manualLabel, { color: colors.text }]}>
-                  Or Enter Asset Code Manually
+                  Or Enter Asset / Location Code Manually
                 </Text>
                 <Text style={[styles.manualSub, { color: colors.textSecondary }]}>
-                  If QR label is damaged, enter the printed asset tag (e.g. AST-PRJ-001)
+                  Enter asset tag (e.g. AST-PRJ-001) or room/building/campus code (e.g. LH-101, CMP-MAIN)
                 </Text>
                 <View style={styles.manualRow}>
                   <TextInput
@@ -241,7 +250,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                         color: colors.text,
                       },
                     ]}
-                    placeholder="e.g. AST-PRJ-001"
+                    placeholder="e.g. AST-PRJ-001 or LH-101"
                     placeholderTextColor={colors.textMuted}
                     value={manualCode}
                     onChangeText={setManualCode}
@@ -268,7 +277,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                 </View>
               </Card>
             </View>
-          ) : (
+          ) : scannedAsset ? (
             /* Scanned Asset Preview Card */
             <View style={styles.resultSection}>
               <Card style={styles.assetCard}>
@@ -368,7 +377,183 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                 style={{ marginTop: 10 }}
               />
             </View>
-          )}
+          ) : scannedLocation ? (
+            /* Scanned Campus / Building / Floor / Room Info Card */
+            <View style={styles.resultSection}>
+              <Card style={styles.assetCard}>
+                <View style={styles.verifiedHeader}>
+                  <View
+                    style={[
+                      styles.verifiedIconCircle,
+                      { backgroundColor: isDark ? '#2D1C12' : '#FFF0DF' },
+                    ]}
+                  >
+                    <Feather name="map-pin" size={24} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.verifiedTag, { color: colors.primary }]}>
+                      {scannedLocation.locationType.toUpperCase()} QR VERIFIED
+                    </Text>
+                    <Text style={[styles.assetName, { color: colors.text }]}>
+                      {scannedLocation.name}
+                    </Text>
+                  </View>
+                </View>
+
+                {scannedLocation.breadcrumb ? (
+                  <Text
+                    style={[
+                      styles.breadcrumbText,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    {scannedLocation.breadcrumb}
+                  </Text>
+                ) : null}
+
+                <View
+                  style={[styles.divider, { backgroundColor: colors.borderLight }]}
+                />
+
+                {(scannedLocation.code || scannedLocation.roomNumber) && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      {scannedLocation.locationType === 'Room'
+                        ? 'Room Number'
+                        : 'Code'}
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.primary }]}>
+                      {scannedLocation.roomNumber || scannedLocation.code}
+                    </Text>
+                  </View>
+                )}
+
+                {scannedLocation.type && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Space Type
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {scannedLocation.type}
+                    </Text>
+                  </View>
+                )}
+
+                {typeof scannedLocation.capacity === 'number' && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Seating Capacity
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {scannedLocation.capacity} seats
+                    </Text>
+                  </View>
+                )}
+
+                {scannedLocation.readinessStatus && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Readiness
+                    </Text>
+                    <StatusBadge status={scannedLocation.readinessStatus} />
+                  </View>
+                )}
+
+                {(scannedLocation.inCharge ||
+                  scannedLocation.supervisor ||
+                  scannedLocation.contactPerson) && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      In-Charge / Contact
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {scannedLocation.inCharge ||
+                        scannedLocation.supervisor ||
+                        scannedLocation.contactPerson}
+                    </Text>
+                  </View>
+                )}
+
+                {typeof scannedLocation.totalBuildings === 'number' && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Buildings
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {scannedLocation.totalBuildings} Blocks
+                    </Text>
+                  </View>
+                )}
+
+                {typeof scannedLocation.totalFloors === 'number' && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Floors
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {scannedLocation.totalFloors} Floors
+                    </Text>
+                  </View>
+                )}
+
+                {typeof scannedLocation.totalRooms === 'number' && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Rooms
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.text }]}>
+                      {scannedLocation.totalRooms} Rooms
+                    </Text>
+                  </View>
+                )}
+
+                {typeof scannedLocation.totalAssets === 'number' && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Tracked Assets
+                    </Text>
+                    <Text style={[styles.metaValue, { color: colors.primary }]}>
+                      {scannedLocation.totalAssets} items
+                    </Text>
+                  </View>
+                )}
+
+                {scannedLocation.latitude != null &&
+                  scannedLocation.longitude != null && (
+                    <View style={styles.metaRow}>
+                      <Text
+                        style={[styles.metaLabel, { color: colors.textSecondary }]}
+                      >
+                        GPS Geofence
+                      </Text>
+                      <Text style={[styles.metaValue, { color: colors.text }]}>
+                        {Number(scannedLocation.latitude).toFixed(4)},{' '}
+                        {Number(scannedLocation.longitude).toFixed(4)}
+                      </Text>
+                    </View>
+                  )}
+              </Card>
+
+              {onProceedToLocationReport &&
+                scannedLocation.locationType === 'Room' && (
+                  <Button
+                    title="Report Issue in this Space"
+                    icon="alert-triangle"
+                    size="lg"
+                    onPress={() => onProceedToLocationReport(scannedLocation)}
+                    style={{ marginTop: 8 }}
+                  />
+                )}
+
+              <Button
+                title="Scan Another QR Code"
+                variant="outline"
+                icon="refresh-cw"
+                onPress={handleScanAgain}
+                style={{ marginTop: 10 }}
+              />
+            </View>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -601,6 +786,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     marginTop: 2,
+  },
+  breadcrumbText: {
+    fontSize: 12,
+    marginTop: 8,
+    fontWeight: '600',
   },
   divider: {
     height: 1,

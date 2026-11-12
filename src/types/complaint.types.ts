@@ -148,6 +148,41 @@ export interface ScannedAssetInfo {
   responsiblePerson?: string;
 }
 
+export type ScannedLocationType = 'Campus' | 'Building' | 'Floor' | 'Room';
+
+export interface ScannedLocationInfo {
+  locationType: ScannedLocationType;
+  id: string;
+  name: string;
+  code?: string;
+  roomNumber?: string;
+  type?: string;
+  capacity?: number;
+  readinessStatus?: string;
+  readinessReason?: string;
+  inCharge?: string;
+  supervisor?: string;
+  contactPerson?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  status?: string;
+  floorNumber?: number;
+  totalBuildings?: number;
+  totalFloors?: number;
+  totalRooms?: number;
+  totalAssets?: number;
+  qrCodeString?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofenceRadiusMeters?: number;
+  breadcrumb?: string;
+  hierarchy?: {
+    campus?: { id?: string; name?: string; code?: string };
+    building?: { id?: string; name?: string; code?: string };
+    floor?: { id?: string; floorName?: string; floorNumber?: number };
+  };
+}
+
 export interface LocationRoomNode {
   id: string;
   roomNumber?: string;

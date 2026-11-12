@@ -75,6 +75,7 @@ export const API_CONFIG = {
     COMPLAINT_CATEGORIES: '/complaint-categories',
     PUBLIC_QR_REPORT: '/complaints/public/qr-report',
     ASSET_SCAN: '/assets/scan',
+    LOCATIONS_SCAN: '/locations/scan',
     LOCATIONS_TREE: '/locations/tree',
   },
 };

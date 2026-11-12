@@ -1,7 +1,7 @@
 import { apiClient } from './apiClient';
 import { API_CONFIG } from '../config/api.config';
 import { ApiResponse } from '../types/auth.types';
-import { LocationCampusNode } from '../types/complaint.types';
+import { LocationCampusNode, ScannedLocationInfo } from '../types/complaint.types';
 
 export const LocationService = {
   /**
@@ -27,5 +27,31 @@ export const LocationService = {
       throw new Error(Array.isArray(msg) ? msg.join(', ') : String(msg));
     }
   },
-};
 
+  /**
+   * Resolve a scanned Campus / Building / Floor / Room QR code or identifier
+   */
+  async scanLocationByQr(codeOrPayload: string): Promise<ScannedLocationInfo> {
+    try {
+      const response = await apiClient.get<ApiResponse<ScannedLocationInfo>>(
+        API_CONFIG.ENDPOINTS.LOCATIONS_SCAN,
+        {
+          params: { code: codeOrPayload.trim() },
+        }
+      );
+
+      const responseData = response.data;
+      if (!responseData.status || !responseData.data || !responseData.data.locationType) {
+        throw new Error(responseData.message || 'Location QR code not recognized.');
+      }
+
+      return responseData.data;
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Location QR code not found.';
+      throw new Error(Array.isArray(msg) ? msg.join(', ') : String(msg));
+    }
+  },
+};

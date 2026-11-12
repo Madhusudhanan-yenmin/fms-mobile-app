@@ -13,6 +13,7 @@ import {
   checkAuthSessionThunk,
   setActiveRole as setReduxRole,
   setScannedAsset,
+  setScannedLocation,
 } from './store';
 import { LoginScreen, ForgotPasswordScreen } from './screens/auth';
 
@@ -246,7 +247,16 @@ export const AppContainer: React.FC = () => {
         onProceedToReport={(asset) => {
           dispatch(setScannedAsset(asset));
           setQrScannerVisible(false);
-          setActiveTabKey('staff_raise');
+          setActiveTabKey(
+            currentRole === 'housekeeping-supervisor' ? 'hk_report' : 'staff_raise'
+          );
+        }}
+        onProceedToLocationReport={(location) => {
+          dispatch(setScannedLocation(location));
+          setQrScannerVisible(false);
+          setActiveTabKey(
+            currentRole === 'housekeeping-supervisor' ? 'hk_report' : 'staff_raise'
+          );
         }}
       />
     </View>

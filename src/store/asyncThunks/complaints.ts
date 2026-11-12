@@ -8,6 +8,8 @@ import {
   ComplaintFeedbackPayload,
   CreateComplaintPayload,
   PublicQrComplaintPayload,
+  ScannedAssetInfo,
+  ScannedLocationInfo,
 } from '../../types/complaint.types';
 
 /**
@@ -81,7 +83,7 @@ export const createComplaintThunk = createAsyncThunk(
 );
 
 /**
- * 6. Resolve scanned QR code / Asset Code
+ * 6a. Resolve scanned QR code / Asset Code (Legacy Asset-only helper)
  */
 export const scanAssetQrThunk = createAsyncThunk(
   'complaints/scanAssetQr',
@@ -90,6 +92,36 @@ export const scanAssetQrThunk = createAsyncThunk(
       return await ComplaintService.scanAssetByQr(codeOrPayload);
     } catch (err: any) {
       return rejectWithValue(err.message || 'Asset QR code could not be resolved');
+    }
+  }
+);
+
+export type UniversalQrScanResult =
+  | { kind: 'location'; location: ScannedLocationInfo }
+  | { kind: 'asset'; asset: ScannedAssetInfo };
+
+/**
+ * 6b. Universal QR Scan Resolver (Checks Campus/Building/Floor/Room first, then Equipment Asset)
+ */
+export const scanUniversalQrThunk = createAsyncThunk<
+  UniversalQrScanResult,
+  string
+>(
+  'complaints/scanUniversalQr',
+  async (codeOrPayload: string, { rejectWithValue }) => {
+    try {
+      const location = await LocationService.scanLocationByQr(codeOrPayload);
+      return { kind: 'location', location };
+    } catch {
+      try {
+        const asset = await ComplaintService.scanAssetByQr(codeOrPayload);
+        return { kind: 'asset', asset };
+      } catch (assetErr: any) {
+        return rejectWithValue(
+          assetErr?.message ||
+            'QR code could not be resolved in campus locations or equipment registry.'
+        );
+      }
     }
   }
 );
