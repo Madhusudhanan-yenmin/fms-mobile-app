@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ComplaintItem } from '../../types/complaint.types';
-import { Card, StatusBadge, Button } from '../../components';
+import { Card, StatusBadge } from '../../components';
 import { useTheme } from '../../context';
 import {
   useAppDispatch,
@@ -136,34 +136,109 @@ export const TeacherHomeScreen: React.FC<TeacherHomeScreenProps> = ({
               style={[
                 styles.scanBanner,
                 {
-                  backgroundColor: colors.primary,
-                  shadowColor: colors.primary,
+                  backgroundColor: isDark ? '#24170E' : colors.primary,
+                  borderWidth: isDark ? 1 : 0,
+                  borderColor: isDark ? 'rgba(241, 110, 0, 0.42)' : 'transparent',
+                  shadowColor: isDark ? '#000000' : colors.primary,
                 },
               ]}
               activeOpacity={0.8}
               onPress={onNavigateToScan}
             >
-              <View style={styles.scanIconBox}>
-                <Feather name="maximize" size={24} color="#FFFFFF" />
+              <View
+                style={[
+                  styles.scanIconBox,
+                  {
+                    backgroundColor: isDark
+                      ? 'rgba(241, 110, 0, 0.2)'
+                      : 'rgba(255, 255, 255, 0.2)',
+                  },
+                ]}
+              >
+                <Feather
+                  name="maximize"
+                  size={24}
+                  color={isDark ? colors.primary : '#FFFFFF'}
+                />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.scanBannerTitle}>
+                <Text
+                  style={[
+                    styles.scanBannerTitle,
+                    { color: isDark ? colors.text : '#FFFFFF' },
+                  ]}
+                >
                   Scan Classroom / Equipment QR
                 </Text>
-                <Text style={styles.scanBannerSub}>
+                <Text
+                  style={[
+                    styles.scanBannerSub,
+                    {
+                      color: isDark ? colors.textSecondary : '#FFFFFF',
+                      opacity: isDark ? 1 : 0.9,
+                    },
+                  ]}
+                >
                   Auto-detects room & equipment code for instant service report
                 </Text>
               </View>
-              <Feather name="arrow-right" size={20} color="#FFFFFF" />
+              <Feather
+                name="arrow-right"
+                size={20}
+                color={isDark ? colors.primary : '#FFFFFF'}
+              />
             </TouchableOpacity>
 
-            <Button
-              title="Raise Facility or Equipment Complaint"
-              icon="plus-circle"
-              size="lg"
+            <TouchableOpacity
+              style={[
+                styles.raiseActionCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: isDark ? '#334155' : '#FED7AA',
+                  shadowColor: isDark ? '#000000' : colors.primary,
+                },
+              ]}
+              activeOpacity={0.82}
               onPress={onNavigateToRaise}
-              style={{ marginBottom: 16 }}
-            />
+            >
+              <View
+                style={[
+                  styles.raiseIconBox,
+                  {
+                    backgroundColor: isDark
+                      ? 'rgba(245, 130, 32, 0.16)'
+                      : '#FFF7ED',
+                  },
+                ]}
+              >
+                <Feather name="plus-circle" size={21} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.raiseActionTitle, { color: colors.text }]}>
+                  Raise Facility or Equipment Complaint
+                </Text>
+                <Text
+                  style={[
+                    styles.raiseActionSub,
+                    { color: colors.textSecondary },
+                  ]}
+                >
+                  Select campus, building & room manually without QR
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.raiseArrowPill,
+                  {
+                    backgroundColor: isDark
+                      ? 'rgba(245, 130, 32, 0.14)'
+                      : '#FFF7ED',
+                  },
+                ]}
+              >
+                <Feather name="chevron-right" size={16} color={colors.primary} />
+              </View>
+            </TouchableOpacity>
           </>
         )}
 
@@ -469,6 +544,44 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     marginTop: 2,
     lineHeight: 15,
+  },
+  raiseActionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 18,
+    gap: 12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  raiseIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  raiseActionTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: -0.1,
+  },
+  raiseActionSub: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  raiseArrowPill: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionHeader: {
     flexDirection: 'row',

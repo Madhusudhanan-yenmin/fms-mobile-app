@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,6 +6,7 @@ import { Colors } from '../constants/colors';
 import { ROLE_NAVIGATION_TABS } from '../constants/navigation';
 import { AppRole } from '../constants/roles';
 import { useTheme } from '../context';
+import { useAppSelector } from '../store';
 
 interface DynamicTabBarProps {
   currentRole: AppRole;
@@ -20,6 +21,14 @@ export const DynamicTabBar: React.FC<DynamicTabBarProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const complaints = useAppSelector((state) => state.complaints.items);
+  const openComplaintsCount = useMemo(
+    () =>
+      complaints.filter((item) =>
+        ['Raised', 'Assigned', 'In Progress'].includes(item.status)
+      ).length,
+    [complaints]
+  );
   const tabs = ROLE_NAVIGATION_TABS[currentRole] || ROLE_NAVIGATION_TABS['technician'] || [];
   const safeBottom = Math.max(insets.bottom, 8) + 6;
 
@@ -37,6 +46,8 @@ export const DynamicTabBar: React.FC<DynamicTabBarProps> = ({
       {tabs.map((tab) => {
         const isActive = activeTabKey === tab.key;
         const iconColor = isActive ? colors.primary : colors.textMuted;
+        const displayBadgeCount =
+          tab.key === 'staff_complaints' ? openComplaintsCount : tab.badgeCount;
 
         return (
           <TouchableOpacity
@@ -47,9 +58,11 @@ export const DynamicTabBar: React.FC<DynamicTabBarProps> = ({
           >
             <View style={styles.iconWrapper}>
               <Feather name={tab.iconName as any} size={20} color={iconColor} />
-              {Boolean(tab.badgeCount && tab.badgeCount > 0) && (
+              {Boolean(displayBadgeCount && displayBadgeCount > 0) && (
                 <View style={[styles.badge, { borderColor: colors.surface }]}>
-                  <Text style={styles.badgeText}>{tab.badgeCount}</Text>
+                  <Text style={styles.badgeText}>
+                    {displayBadgeCount! > 99 ? '99+' : displayBadgeCount}
+                  </Text>
                 </View>
               )}
             </View>

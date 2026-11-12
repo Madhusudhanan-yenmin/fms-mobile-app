@@ -304,38 +304,6 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top Left Navigation Button */}
-      <View
-        style={[
-          styles.topHeader,
-          {
-            paddingTop: Math.max(insets.top, 24) + 6,
-            backgroundColor: colors.background,
-          },
-        ]}
-      >
-        {step !== 3 && (
-          <TouchableOpacity
-            style={[
-              styles.topLeftBtn,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-              },
-            ]}
-            onPress={step === 2 ? handleChangeEmail : handleBackToLogin}
-            activeOpacity={0.7}
-          >
-            <View style={styles.backIconCircle}>
-              <Feather name="arrow-left" size={17} color={colors.text} />
-            </View>
-            <Text style={[styles.topLeftBtnText, { color: colors.textSecondary }]}>
-              {step === 2 ? 'Change Email' : 'Back to Sign In'}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
       <View style={{ flex: 1, paddingBottom: activeBottomInset }}>
         <ScrollView
           ref={scrollViewRef}
@@ -344,7 +312,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
             styles.scrollContent,
             !isKeyboardVisible && styles.scrollContentCentered,
             {
-              paddingTop: isKeyboardVisible ? 10 : 20,
+              paddingTop: Math.max(insets.top, 24) + (isKeyboardVisible ? 10 : 20),
               paddingBottom: isKeyboardVisible ? 24 : Math.max(insets.bottom, 24) + 24,
             },
           ]}
@@ -399,12 +367,6 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                 <View style={styles.inputGroup}>
                   <View style={styles.labelRow}>
                     <Text style={[styles.label, { color: colors.text }]}>Registered Email</Text>
-                    {touched.email && !fieldErrors.email && email.length > 0 && (
-                      <View style={styles.validPill}>
-                        <Feather name="check" size={12} color="#059669" />
-                        <Text style={styles.validPillText}>Valid</Text>
-                      </View>
-                    )}
                   </View>
                   <View
                     style={[
@@ -793,6 +755,16 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                     Didn't receive code? <Text style={styles.boldOrange}>Resend OTP</Text>
                   </Text>
                 </TouchableOpacity>
+
+                {/* Change Email Button inside Form */}
+                <TouchableOpacity
+                  style={styles.changeEmailBtn}
+                  onPress={handleChangeEmail}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="arrow-left" size={14} color={Colors.primaryDark} />
+                  <Text style={styles.changeEmailBtnText}>Change Email</Text>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -1086,6 +1058,20 @@ const styles = StyleSheet.create({
   resendText: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  changeEmailBtn: {
+    marginTop: 12,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  changeEmailBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Colors.primaryDark,
   },
   successBadgeWrapper: {
     alignItems: 'center',

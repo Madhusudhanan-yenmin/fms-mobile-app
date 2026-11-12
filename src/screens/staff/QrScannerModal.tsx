@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -8,6 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
 } from 'react-native';
@@ -51,8 +52,46 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const [hasScannedFrame, setHasScannedFrame] = useState(false);
+  const scrollViewRef = useRef<any>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const hasResult = Boolean(scannedAsset || scannedLocation);
+
+  useEffect(() => {
+    const handleKeyboardShow = (e: any) => {
+      if (!visible) return;
+      const height = e?.endCoordinates?.height || 300;
+      setKeyboardHeight(height);
+      setIsKeyboardVisible(true);
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 140);
+    };
+
+    const handleKeyboardHide = () => {
+      setIsKeyboardVisible(false);
+      setKeyboardHeight(0);
+    };
+
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      handleKeyboardShow
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      handleKeyboardHide
+    );
+    const didShowSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
+    const didHideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      didShowSub.remove();
+      didHideSub.remove();
+    };
+  }, [visible]);
 
   // Reset scan state each time modal opens
   useEffect(() => {
@@ -148,8 +187,13 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          ref={scrollViewRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            isKeyboardVisible && { paddingBottom: Math.max(220, keyboardHeight + 24) },
+          ]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Camera Viewfinder OR Result Card */}
           {!hasResult ? (
@@ -254,6 +298,11 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                     placeholderTextColor={colors.textMuted}
                     value={manualCode}
                     onChangeText={setManualCode}
+                    onFocus={() => {
+                      setTimeout(() => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true });
+                      }, 140);
+                    }}
                     autoCapitalize="characters"
                     autoCorrect={false}
                     returnKeyType="search"
