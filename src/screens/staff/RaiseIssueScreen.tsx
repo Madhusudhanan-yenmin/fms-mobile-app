@@ -9,6 +9,7 @@ import {
   Modal,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -190,7 +191,68 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
   const [successTicketNum, setSuccessTicketNum] = useState<string | null>(null);
   const pickerSelectedRef = useRef(false);
 
+  // Keyboard & scroll tracking for Raise Issue / QR Report forms
+  const scrollViewRef = useRef<any>(null);
+  const cardOffsetYRef = useRef(0);
+  const titleOffsetYRef = useRef(0);
+  const descriptionOffsetYRef = useRef(0);
+  const focusedFieldRef = useRef<'title' | 'description' | null>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
   const priorities: PriorityLevel[] = ['Low', 'Medium', 'High', 'Critical'];
+
+  const scrollToFocusedField = (field: 'title' | 'description') => {
+    setTimeout(() => {
+      if (field === 'description') {
+        const targetY = Math.max(
+          0,
+          cardOffsetYRef.current + descriptionOffsetYRef.current - 28
+        );
+        scrollViewRef.current?.scrollTo({ y: targetY, animated: true });
+      } else {
+        const targetY = Math.max(
+          0,
+          cardOffsetYRef.current + titleOffsetYRef.current - 28
+        );
+        scrollViewRef.current?.scrollTo({ y: targetY, animated: true });
+      }
+    }, 140);
+  };
+
+  useEffect(() => {
+    const handleKeyboardShow = (e: any) => {
+      const height = e?.endCoordinates?.height || 300;
+      setKeyboardHeight(height);
+      setIsKeyboardVisible(true);
+      if (focusedFieldRef.current) {
+        scrollToFocusedField(focusedFieldRef.current);
+      }
+    };
+
+    const handleKeyboardHide = () => {
+      setIsKeyboardVisible(false);
+      setKeyboardHeight(0);
+    };
+
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      handleKeyboardShow
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      handleKeyboardHide
+    );
+    const didShowSub = Keyboard.addListener('keyboardDidShow', handleKeyboardShow);
+    const didHideSub = Keyboard.addListener('keyboardDidHide', handleKeyboardHide);
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      didShowSub.remove();
+      didHideSub.remove();
+    };
+  }, []);
 
   // Load categories & location tree on mount
   useEffect(() => {
@@ -596,9 +658,19 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={scrollViewRef}
         style={[styles.container, { backgroundColor: colors.background }]}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: isKeyboardVisible
+              ? Math.max(220, keyboardHeight - 40)
+              : 35,
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={true}
       >
         {/* QR Scanned Equipment Card OR Scan Shortcut */}
         {scannedAsset ? (
@@ -753,6 +825,11 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
           </View>
         )}
 
+        <View
+          onLayout={(e) => {
+            cardOffsetYRef.current = e.nativeEvent.layout.y;
+          }}
+        >
         <Card>
           {/* Manual Campus -> Building -> Floor -> Room Pickers (when no QR asset) */}
           {!scannedAsset && (
@@ -953,54 +1030,85 @@ export const RaiseIssueScreen: React.FC<RaiseIssueScreenProps> = ({
           )}
 
           {/* Complaint Title */}
-          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
-            Complaint Title *
-          </Text>
-          <TextInput
-            style={[
-              styles.textInputFlat,
-              {
-                borderColor: fieldErrors.title ? '#EF4444' : colors.border,
-                backgroundColor: isDark ? '#1A2333' : colors.surface,
-                color: colors.text,
-              },
-            ]}
-            placeholder="e.g. Projector flickering or AC water leak..."
-            placeholderTextColor={colors.textMuted}
-            value={title}
-            onChangeText={handleTitleChange}
-            onBlur={() => handleBlur('title')}
-          />
-          {fieldErrors.title && (
-            <Text style={styles.fieldError}>{fieldErrors.title}</Text>
-          )}
+          <View
+            onLayout={(e) => {
+              titleOffsetYRef.current = e.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+              Complaint Title *
+            </Text>
+            <TextInput
+              style={[
+                styles.textInputFlat,
+                {
+                  borderColor: fieldErrors.title ? '#EF4444' : colors.border,
+                  backgroundColor: isDark ? '#1A2333' : colors.surface,
+                  color: colors.text,
+                },
+              ]}
+              placeholder="e.g. Projector flickering or AC water leak..."
+              placeholderTextColor={colors.textMuted}
+              value={title}
+              onChangeText={handleTitleChange}
+              onFocus={() => {
+                focusedFieldRef.current = 'title';
+                scrollToFocusedField('title');
+              }}
+              onBlur={() => {
+                if (focusedFieldRef.current === 'title') {
+                  focusedFieldRef.current = null;
+                }
+                handleBlur('title');
+              }}
+            />
+            {fieldErrors.title && (
+              <Text style={styles.fieldError}>{fieldErrors.title}</Text>
+            )}
+          </View>
 
           {/* Detailed Description */}
-          <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
-            Detailed Description *
-          </Text>
-          <TextInput
-            style={[
-              styles.textInputFlat,
-              {
-                height: 90,
-                textAlignVertical: 'top',
-                borderColor: fieldErrors.description ? '#EF4444' : colors.border,
-                backgroundColor: isDark ? '#1A2333' : colors.surface,
-                color: colors.text,
-              },
-            ]}
-            placeholder="Describe the breakdown, noise, or symptom observed..."
-            placeholderTextColor={colors.textMuted}
-            multiline
-            value={description}
-            onChangeText={handleDescriptionChange}
-            onBlur={() => handleBlur('description')}
-          />
-          {fieldErrors.description && (
-            <Text style={styles.fieldError}>{fieldErrors.description}</Text>
-          )}
+          <View
+            onLayout={(e) => {
+              descriptionOffsetYRef.current = e.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={[styles.label, { color: colors.text, marginTop: 14 }]}>
+              Detailed Description *
+            </Text>
+            <TextInput
+              style={[
+                styles.textInputFlat,
+                {
+                  height: 90,
+                  textAlignVertical: 'top',
+                  borderColor: fieldErrors.description ? '#EF4444' : colors.border,
+                  backgroundColor: isDark ? '#1A2333' : colors.surface,
+                  color: colors.text,
+                },
+              ]}
+              placeholder="Describe the breakdown, noise, or symptom observed..."
+              placeholderTextColor={colors.textMuted}
+              multiline
+              value={description}
+              onChangeText={handleDescriptionChange}
+              onFocus={() => {
+                focusedFieldRef.current = 'description';
+                scrollToFocusedField('description');
+              }}
+              onBlur={() => {
+                if (focusedFieldRef.current === 'description') {
+                  focusedFieldRef.current = null;
+                }
+                handleBlur('description');
+              }}
+            />
+            {fieldErrors.description && (
+              <Text style={styles.fieldError}>{fieldErrors.description}</Text>
+            )}
+          </View>
         </Card>
+        </View>
 
         <Button
           title={scannedAsset ? 'Submit QR Breakdown Report' : 'Submit Complaint Ticket'}

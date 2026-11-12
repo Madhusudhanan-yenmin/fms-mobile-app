@@ -251,12 +251,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToForgotPass
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
                 <Text style={[styles.inputLabel, { color: colors.text }]}>Email Address</Text>
-                {touched.email && !fieldErrors.email && email.length > 0 && (
-                  <View style={styles.validPill}>
-                    <Feather name="check" size={12} color="#059669" />
-                    <Text style={styles.validPillText}>Valid</Text>
-                  </View>
-                )}
               </View>
               <View
                 style={[

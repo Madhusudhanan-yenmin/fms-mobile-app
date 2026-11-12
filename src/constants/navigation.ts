@@ -89,7 +89,7 @@ export const ROLE_NAVIGATION_TABS: Record<AppRole, TabConfig[]> = {
     { key: 'staff_home', label: 'Home', iconName: 'home' },
     { key: 'staff_scan', label: 'Scan QR', iconName: 'maximize' },
     { key: 'staff_raise', label: 'Raise Issue', iconName: 'plus-circle' },
-    { key: 'staff_complaints', label: 'My Complaints', iconName: 'file-text', badgeCount: 1 },
+    { key: 'staff_complaints', label: 'My Complaints', iconName: 'file-text' },
     { key: 'profile', label: 'Profile', iconName: 'user' },
   ],
   'student-parent': [

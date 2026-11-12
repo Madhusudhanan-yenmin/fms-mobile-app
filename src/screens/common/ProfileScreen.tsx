@@ -514,7 +514,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentRole }) => 
 
       {/* Sign Out Button */}
       <Button
-        title="Sign Out of Session"
+        title="Log out"
         variant="outline"
         icon="log-out"
         onPress={handleOpenSignOut}
@@ -584,12 +584,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentRole }) => 
               <View style={styles.modalInputGroup}>
                 <View style={styles.modalLabelRow}>
                   <Text style={[styles.modalLabel, { color: colors.text }]}>Current Password</Text>
-                  {isCurrentValid && (
-                    <View style={styles.validPill}>
-                      <Feather name="check" size={12} color="#059669" />
-                      <Text style={styles.validPillText}>Valid</Text>
-                    </View>
-                  )}
                 </View>
                 <View
                   style={[
@@ -645,12 +639,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentRole }) => 
                   <Text style={[styles.modalLabel, { color: colors.text }]}>
                     New Password (min 8 chars)
                   </Text>
-                  {isNewValid && (
-                    <View style={styles.validPill}>
-                      <Feather name="check" size={12} color="#059669" />
-                      <Text style={styles.validPillText}>Valid</Text>
-                    </View>
-                  )}
                 </View>
                 <View
                   style={[
@@ -704,12 +692,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentRole }) => 
               <View style={styles.modalInputGroup}>
                 <View style={styles.modalLabelRow}>
                   <Text style={[styles.modalLabel, { color: colors.text }]}>Confirm New Password</Text>
-                  {isConfirmValid && (
-                    <View style={styles.validPill}>
-                      <Feather name="check" size={12} color="#059669" />
-                      <Text style={styles.validPillText}>Matched</Text>
-                    </View>
-                  )}
                 </View>
                 <View
                   style={[
@@ -797,13 +779,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentRole }) => 
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modern Sign Out Confirmation Modal */}
+      {/* Modern Log Out Confirmation Modal */}
       <ConfirmationModal
         visible={signOutModalVisible}
         type="danger"
-        title="Sign Out"
-        message="Are you sure you want to sign out of Yenmin Smart Campus FMS?"
-        confirmText="Sign Out"
+        title="Log out"
+        message="Are you sure you want to log out of Yenmin Smart Campus FMS?"
+        confirmText="Log out"
         cancelText="Cancel"
         confirmIcon="log-out"
         loading={signOutLoading}
