@@ -408,6 +408,43 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                     </Text>
                   </View>
                 )}
+
+                {scannedAsset.mobilityType && (
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                      Mobility
+                    </Text>
+                    <View style={styles.metaValueGroup}>
+                      <Feather
+                        name={scannedAsset.mobilityType === 'Immovable' ? 'anchor' : 'navigation'}
+                        size={12}
+                        color={scannedAsset.mobilityType === 'Immovable' ? colors.primary : '#059669'}
+                      />
+                      <Text style={[styles.metaValueGroupText, { color: colors.text }]}>
+                        {scannedAsset.mobilityType}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.metaRow}>
+                  <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                    Geo Tag
+                  </Text>
+                  {scannedAsset.latitude != null && scannedAsset.longitude != null ? (
+                    <View style={styles.metaValueGroup}>
+                      <Feather name="map-pin" size={12} color="#059669" />
+                      <Text style={[styles.metaValueGroupText, { color: colors.text }]}>
+                        {Number(scannedAsset.latitude).toFixed(4)},{' '}
+                        {Number(scannedAsset.longitude).toFixed(4)}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.metaValue, { color: colors.textMuted }]}>
+                      Not Geo-tagged
+                    </Text>
+                  )}
+                </View>
               </Card>
 
               <Button
@@ -567,20 +604,29 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                   </View>
                 )}
 
-                {scannedLocation.latitude != null &&
-                  scannedLocation.longitude != null && (
-                    <View style={styles.metaRow}>
-                      <Text
-                        style={[styles.metaLabel, { color: colors.textSecondary }]}
-                      >
-                        GPS Geofence
-                      </Text>
-                      <Text style={[styles.metaValue, { color: colors.text }]}>
+                <View style={styles.metaRow}>
+                  <Text
+                    style={[styles.metaLabel, { color: colors.textSecondary }]}
+                  >
+                    GPS Geofence
+                  </Text>
+                  {scannedLocation.latitude != null && scannedLocation.longitude != null ? (
+                    <View style={styles.metaValueGroup}>
+                      <Feather name="map-pin" size={12} color={colors.primary} />
+                      <Text style={[styles.metaValueGroupText, { color: colors.text }]}>
                         {Number(scannedLocation.latitude).toFixed(4)},{' '}
                         {Number(scannedLocation.longitude).toFixed(4)}
+                        {scannedLocation.geofenceRadiusMeters ? ` (${scannedLocation.geofenceRadiusMeters}m)` : ''}
                       </Text>
                     </View>
+                  ) : (
+                    <Text style={[styles.metaValue, { color: colors.textMuted }]}>
+                      {scannedLocation.geofenceRadiusMeters
+                        ? `Geofenced (${scannedLocation.geofenceRadiusMeters}m)`
+                        : 'Not Configured'}
+                    </Text>
                   )}
+                </View>
               </Card>
 
               {onProceedToLocationReport &&
@@ -849,7 +895,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 5,
     gap: 12,
   },
   metaLabel: {
@@ -861,5 +907,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     flex: 1,
     textAlign: 'right',
+  },
+  metaValueGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 5,
+  },
+  metaValueGroupText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
