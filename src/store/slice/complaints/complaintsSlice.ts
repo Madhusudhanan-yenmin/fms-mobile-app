@@ -4,6 +4,7 @@ import {
   ComplaintItem,
   LocationCampusNode,
   ScannedAssetInfo,
+  ScannedLocationInfo,
 } from '../../../types/complaint.types';
 import { DEFAULT_COMPLAINT_CATEGORIES } from '../../../services/complaintService';
 import {
@@ -13,6 +14,7 @@ import {
   fetchLocationsTreeThunk,
   fetchMyComplaintsThunk,
   scanAssetQrThunk,
+  scanUniversalQrThunk,
   submitComplaintFeedbackThunk,
   submitQrComplaintThunk,
 } from '../../asyncThunks/complaints';
@@ -24,6 +26,7 @@ export interface ComplaintsState {
   categories: ComplaintCategoryItem[];
   locationsTree: LocationCampusNode[];
   scannedAsset: ScannedAssetInfo | null;
+  scannedLocation: ScannedLocationInfo | null;
 
   loadingList: boolean;
   loadingDetail: boolean;
@@ -44,6 +47,7 @@ const initialState: ComplaintsState = {
   categories: DEFAULT_COMPLAINT_CATEGORIES,
   locationsTree: [],
   scannedAsset: null,
+  scannedLocation: null,
 
   loadingList: false,
   loadingDetail: false,
@@ -72,6 +76,19 @@ export const complaintsSlice = createSlice({
     },
     setScannedAsset: (state, action: PayloadAction<ScannedAssetInfo | null>) => {
       state.scannedAsset = action.payload;
+      state.scannedLocation = null;
+      state.scanError = null;
+    },
+    clearScannedLocation: (state) => {
+      state.scannedLocation = null;
+      state.scanError = null;
+    },
+    setScannedLocation: (
+      state,
+      action: PayloadAction<ScannedLocationInfo | null>
+    ) => {
+      state.scannedLocation = action.payload;
+      state.scannedAsset = null;
       state.scanError = null;
     },
     clearSelectedComplaint: (state) => {
@@ -151,7 +168,7 @@ export const complaintsSlice = createSlice({
         state.submitError = (action.payload as string) || 'Failed to submit complaint';
       });
 
-    // 6. Scan Asset QR
+    // 6a. Scan Asset QR
     builder
       .addCase(scanAssetQrThunk.pending, (state) => {
         state.scanningQr = true;
@@ -160,11 +177,37 @@ export const complaintsSlice = createSlice({
       .addCase(scanAssetQrThunk.fulfilled, (state, action) => {
         state.scanningQr = false;
         state.scannedAsset = action.payload;
+        state.scannedLocation = null;
       })
       .addCase(scanAssetQrThunk.rejected, (state, action) => {
         state.scanningQr = false;
         state.scannedAsset = null;
         state.scanError = (action.payload as string) || 'Asset QR could not be resolved';
+      });
+
+    // 6b. Universal QR Scan (Location or Asset)
+    builder
+      .addCase(scanUniversalQrThunk.pending, (state) => {
+        state.scanningQr = true;
+        state.scanError = null;
+      })
+      .addCase(scanUniversalQrThunk.fulfilled, (state, action) => {
+        state.scanningQr = false;
+        if (action.payload.kind === 'location') {
+          state.scannedLocation = action.payload.location;
+          state.scannedAsset = null;
+        } else {
+          state.scannedAsset = action.payload.asset;
+          state.scannedLocation = null;
+        }
+      })
+      .addCase(scanUniversalQrThunk.rejected, (state, action) => {
+        state.scanningQr = false;
+        state.scannedAsset = null;
+        state.scannedLocation = null;
+        state.scanError =
+          (action.payload as string) ||
+          'QR code could not be resolved in campus registry';
       });
 
     // 7. Submit QR Complaint
@@ -211,6 +254,8 @@ export const {
   clearComplaintErrors,
   clearScannedAsset,
   setScannedAsset,
+  clearScannedLocation,
+  setScannedLocation,
   clearSelectedComplaint,
 } = complaintsSlice.actions;
 
