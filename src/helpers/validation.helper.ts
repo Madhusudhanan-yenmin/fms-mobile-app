@@ -74,4 +74,61 @@ export const editProfileYupSchema = yup.object().shape({
     .max(50, 'Department name cannot exceed 50 characters'),
 });
 
+export const raiseComplaintYupSchema = yup.object().shape({
+  campusId: yup
+    .string()
+    .trim()
+    .required('Please select a campus'),
+  buildingId: yup
+    .string()
+    .trim()
+    .required('Please select a building'),
+  category: yup
+    .string()
+    .trim()
+    .required('Please select an issue category'),
+  priority: yup
+    .string()
+    .oneOf(['Low', 'Medium', 'High', 'Critical'], 'Invalid priority level')
+    .required('Please select a priority level'),
+  title: yup
+    .string()
+    .trim()
+    .required('Complaint title is required')
+    .min(5, 'Title must be at least 5 characters')
+    .max(255, 'Title cannot exceed 255 characters'),
+  description: yup
+    .string()
+    .trim()
+    .required('Detailed description is required')
+    .min(5, 'Please provide a brief description (at least 5 characters)'),
+});
+
+export const qrComplaintYupSchema = yup.object().shape({
+  assetCode: yup
+    .string()
+    .trim()
+    .required('Scanned asset code is required'),
+  category: yup
+    .string()
+    .trim()
+    .required('Please select an issue category'),
+  priority: yup
+    .string()
+    .oneOf(['Low', 'Medium', 'High', 'Critical'], 'Invalid priority level')
+    .required('Please select a priority level'),
+  title: yup
+    .string()
+    .trim()
+    .required('Complaint title is required')
+    .min(5, 'Title must be at least 5 characters')
+    .max(255, 'Title cannot exceed 255 characters'),
+  description: yup
+    .string()
+    .trim()
+    .required('Detailed description is required')
+    .min(5, 'Please provide a brief description (at least 5 characters)'),
+});
+
+
 

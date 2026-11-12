@@ -7,6 +7,7 @@ import profileReducer from './slice/auth/profileSlice';
 import changePasswordReducer from './slice/auth/changePasswordSlice';
 import forgotPasswordReducer from './slice/auth/forgotPasswordSlice';
 import resetPasswordReducer from './slice/auth/resetPasswordSlice';
+import complaintsReducer from './slice/complaints/complaintsSlice';
 
 const rootReducer = combineReducers({
   // Auth Slices
@@ -15,6 +16,9 @@ const rootReducer = combineReducers({
   changePassword: changePasswordReducer,
   forgotPassword: forgotPasswordReducer,
   resetPassword: resetPasswordReducer,
+
+  // Feature Slices
+  complaints: complaintsReducer,
 
   // Compatibility alias for components using state.auth
   auth: loginReducer,

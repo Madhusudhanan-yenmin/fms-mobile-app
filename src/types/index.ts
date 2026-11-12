@@ -116,3 +116,6 @@ export interface UserAccount {
   avatarInitials: string;
 }
 
+export * from './complaint.types';
+
+
